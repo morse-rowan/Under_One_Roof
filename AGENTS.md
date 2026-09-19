@@ -19,6 +19,7 @@ If the knowledge base cannot be read, report the unavailable path; do not silent
 
 # Development commands and code boundaries
 
+- Prefer CLI, scripts, APIs, and log inspection for development and validation. Use computer control only when necessary for something those methods cannot establish, such as an engine-only visual/input check. Avoid repeating UI checks without a relevant change or unresolved issue. This is Rowan's usage-saving preference; see `wiki/project/development-setup.md` in the shared knowledge base.
 - Install pinned tools with `./tools/bootstrap.ps1`; use `./tools/dev.ps1 doctor` to inspect them.
 - Before handing off code, run `./tools/dev.ps1 check`. It checks formatting, Selene lint, a Rojo build, Lune tests, and the wiki. It is not a Roblox engine playtest or a full Luau type analysis.
 - Use `./tools/dev.ps1 format` for formatting, `./tools/dev.ps1 serve` for local sync, and `./tools/dev.ps1 open` for the generated Studio place. Build outputs under `build/` are disposable.
