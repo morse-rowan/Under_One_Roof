@@ -1,0 +1,26 @@
+{
+  "ClassName": "Model",
+  "Children": [
+    {
+      "Name": "Floor",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": true,
+        "Size": [64, 1, 64],
+        "Position": [0, -0.5, 0],
+        "Color": [0.35, 0.4, 0.45]
+      }
+    },
+    {
+      "Name": "Spawn",
+      "ClassName": "SpawnLocation",
+      "Properties": {
+        "Anchored": true,
+        "Neutral": true,
+        "Size": [6, 1, 6],
+        "Position": [0, 0.5, 0],
+        "Duration": 0
+      }
+    }
+  ]
+}

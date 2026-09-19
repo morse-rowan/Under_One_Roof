@@ -1,0 +1,23 @@
+--!strict
+local fs = require("@lune/fs")
+local roblox = require("@lune/roblox")
+
+-- Check the actual serialized place: catches broken mappings and accidental test packaging.
+return function()
+    local place = roblox.deserializePlace(fs.readFile("build/RoommateDev.rbxlx"))
+    local shared = place:GetService("ReplicatedStorage"):FindFirstChild("Shared")
+    assert(shared and shared:FindFirstChild("BuildInfo"), "Shared/BuildInfo missing")
+    assert(shared.BuildInfo:IsA("ModuleScript"), "BuildInfo must be a ModuleScript")
+    local server = place:GetService("ServerScriptService"):FindFirstChild("Server")
+    assert(server and server:FindFirstChild("Main"), "Server/Main missing")
+    assert(server.Main:IsA("Script"), "Server entry must be a Script")
+    local scripts = place:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
+    assert(scripts and scripts:FindFirstChild("Client"), "Client folder missing")
+    assert(scripts.Client.Main:IsA("LocalScript"), "Client entry must be a LocalScript")
+    local stage = place:GetService("Workspace"):FindFirstChild("DevStage")
+    assert(stage and stage.Floor.Anchored, "Anchored development floor missing")
+    assert(stage.Spawn:IsA("SpawnLocation"), "Development spawn missing")
+    for _, instance in place:GetDescendants() do
+        assert(not string.find(instance.Name, ".spec", 1, true), "Test leaked into place")
+    end
+end

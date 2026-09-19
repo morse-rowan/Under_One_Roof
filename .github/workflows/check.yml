@@ -1,0 +1,16 @@
+name: Development checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned tools
+        shell: pwsh
+        run: ./tools/bootstrap.ps1 -SkipStudioPlugin
+      - name: Format, lint, build, and test
+        shell: pwsh
+        # The personal Obsidian vault is local, so CI checks only repository code.
+        run: ./tools/dev.ps1 check -SkipWiki

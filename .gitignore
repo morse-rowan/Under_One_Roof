@@ -1,0 +1,15 @@
+.tools/
+build/
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+*.rbxm.lock
+*.rbxmx.lock
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+sourcemap.json
+roblox.yml
