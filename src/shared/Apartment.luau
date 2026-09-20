@@ -1,0 +1,72 @@
+--!strict
+-- Tunable prototype content. No services, assets, or secrets.
+return {
+    days = 3,
+    actionSeconds = 60,
+    conversations = 2,
+    messages = 3,
+    effort = 2,
+    startingCash = 100,
+    taskOrder = { "leak", "dishes", "party", "bill" },
+    roommateOrder = { "Blue", "Green", "Red" },
+    tasks = {
+        leak = {
+            name = "Patch the leak",
+            room = "Kitchen",
+            x = -24,
+            z = -10,
+            cost = 0,
+            warning = "Ignored: -25 property",
+        },
+        dishes = {
+            name = "Wash the dishes",
+            room = "Kitchen",
+            x = -9,
+            z = -10,
+            cost = 0,
+            warning = "Ignored: -10 property, +5 heat",
+        },
+        party = {
+            name = "Cancel the party",
+            room = "Lounge",
+            x = 22,
+            z = -9,
+            cost = 0,
+            warning = "Ignored: +25 heat",
+        },
+        bill = {
+            name = "Pay utilities",
+            room = "Lounge",
+            x = 8,
+            z = -10,
+            cost = 20,
+            warning = "Ignored: +20 heat",
+        },
+    },
+    roommates = {
+        Blue = {
+            task = "leak",
+            price = 15,
+            color = { 91, 157, 224 },
+            x = -23,
+            z = 5,
+            hint = "Handy, but saving for new tools. Ask about a repair.",
+        },
+        Green = {
+            task = "dishes",
+            price = 5,
+            color = { 112, 183, 129 },
+            x = -8,
+            z = 5,
+            hint = "Wants a fair split of chores. A little courtesy helps.",
+        },
+        Red = {
+            task = "party",
+            price = 20,
+            color = { 228, 121, 108 },
+            x = 22,
+            z = 5,
+            hint = "Planning a party. Quiet evenings need a good offer.",
+        },
+    },
+}

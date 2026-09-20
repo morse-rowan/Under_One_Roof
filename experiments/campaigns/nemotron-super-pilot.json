@@ -1,0 +1,19 @@
+{
+  "name": "nemotron-super-pilot",
+  "scenario": "nemotron-super-social",
+  "strategy": "sweep",
+  "space": {"economy.bill": [30, 45]},
+  "seeds": [101],
+  "holdout_seeds": [211, 257],
+  "repetitions": 1,
+  "rotate": false,
+  "max_runs": 2,
+  "max_seconds": 1200,
+  "max_calls": 180,
+  "workers": 1,
+  "until_stopped": false,
+  "supervisor": "offline",
+  "evaluator": "offline",
+  "allow_code": false,
+  "hypothesis": "After offline screening and a six-call Super reliability check, test whether bill 30 versus 45 with recent memory changes voluntary contribution, bargaining and savings tradeoffs in matched five-day Nemotron households. One live sample per treatment is exploratory; the seed is reused from offline confirmation and is not a new held-out confirmation. Preserve failures and do not adopt balance automatically."
+}

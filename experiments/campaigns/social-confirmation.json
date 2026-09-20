@@ -1,0 +1,19 @@
+{
+  "name": "social-confirmation",
+  "scenario": "combined",
+  "strategy": "sweep",
+  "space": {"economy.bill": [30, 45], "memory.strategy": ["none", "recent"]},
+  "seeds": [11, 29, 47],
+  "holdout_seeds": [101, 131],
+  "repetitions": 1,
+  "rotate": true,
+  "max_runs": 8,
+  "max_seconds": 600,
+  "max_calls": 0,
+  "workers": 2,
+  "until_stopped": false,
+  "supervisor": "offline",
+  "evaluator": "offline",
+  "allow_code": false,
+  "hypothesis": "Confirm whether recent memory improves bill payment and bill 30 preserves more private savings outcomes than bill 45 under the same scripted roles on held-out seeds. No live behavior or human enjoyment claim."
+}

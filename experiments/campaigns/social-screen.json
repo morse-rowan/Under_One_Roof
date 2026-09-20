@@ -1,0 +1,12 @@
+{
+  "name": "social-screen",
+  "scenario": "combined",
+  "strategy": "sweep",
+  "space": {"economy.bill": [30, 45, 60], "memory.strategy": ["none", "recent"]},
+  "seeds": [11, 29, 47],
+  "holdout_seeds": [101, 131],
+  "max_runs": 18,
+  "max_seconds": 900,
+  "workers": 2,
+  "hypothesis": "Income pressure and remembered behavior create distinct cooperation and private-goal tradeoffs."
+}

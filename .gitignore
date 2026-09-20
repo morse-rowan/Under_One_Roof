@@ -1,5 +1,6 @@
 .tools/
 build/
+simulation-data/
 *.rbxl
 *.rbxlx
 *.rbxl.lock

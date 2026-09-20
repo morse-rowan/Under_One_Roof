@@ -14,6 +14,12 @@ return function()
     local scripts = place:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
     assert(scripts and scripts:FindFirstChild("Client"), "Client folder missing")
     assert(scripts.Client.Main:IsA("LocalScript"), "Client entry must be a LocalScript")
+    for _, name in { "VisualStudy", "GridMovement" } do
+        assert(shared:FindFirstChild(name) and shared[name]:IsA("ModuleScript"), name .. " missing")
+    end
+    assert(server.VisualSandbox:IsA("ModuleScript"), "Visual sandbox server missing")
+    assert(server.VisualStudyScene:IsA("ModuleScript"), "Visual scene builder missing")
+    assert(scripts.Client.VisualSandbox:IsA("ModuleScript"), "Visual sandbox client missing")
     local stage = place:GetService("Workspace"):FindFirstChild("DevStage")
     assert(stage and stage.Floor.Anchored, "Anchored development floor missing")
     assert(stage.Spawn:IsA("SpawnLocation"), "Development spawn missing")

@@ -28,6 +28,8 @@ try {
             Invoke-Tool 'selene' @('src', 'tests')
             Build-Place
             Invoke-Tool 'lune' @('run', 'tests/run.luau')
+            & py -3 -m unittest discover -s tests/python -p 'test_*.py'
+            if ($LASTEXITCODE -ne 0) { throw 'Simulation Python tests failed.' }
             if (-not $SkipWiki) {
                 & py -3 tools/wiki_lint.py
                 if ($LASTEXITCODE -ne 0) { throw 'Wiki check failed.' }
@@ -38,6 +40,8 @@ try {
         'test' {
             Build-Place
             Invoke-Tool 'lune' @('run', 'tests/run.luau')
+            & py -3 -m unittest discover -s tests/python -p 'test_*.py'
+            if ($LASTEXITCODE -ne 0) { throw 'Simulation Python tests failed.' }
         }
         'format' { Invoke-Tool 'stylua' @('src', 'tests') }
         'serve' { Invoke-Tool 'rojo' @('serve', 'default.project.json') }

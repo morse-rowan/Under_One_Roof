@@ -1,0 +1,12 @@
+{
+  "name": "nemotron-pilot",
+  "time": {"days": 1, "social_rounds": 1, "action_rounds": 1},
+  "mechanics": {"alliances": true, "information": true, "plans": true},
+  "actors": [
+    {"id":"blue", "policy":"nemotron", "role":"player", "preference":"quiet", "goal":100},
+    {"id":"green", "policy":"nemotron", "preference":"quiet", "goal":120},
+    {"id":"red", "policy":"nemotron", "preference":"party", "goal":150}
+  ],
+  "limits": {"max_calls":6, "max_seconds":180},
+  "inference": {"requests_per_minute":20}
+}

@@ -1,0 +1,13 @@
+{
+  "name": "nemotron-super-social",
+  "time": {"days": 5, "social_rounds": 3, "action_rounds": 3},
+  "mechanics": {"alliances": true, "information": true, "plans": true},
+  "economy": {"bill": 30},
+  "actors": [
+    {"id": "blue", "policy": "nemotron", "role": "player", "preference": "quiet", "goal": 100},
+    {"id": "green", "policy": "nemotron", "preference": "quiet", "goal": 120},
+    {"id": "red", "policy": "nemotron", "preference": "party", "goal": 150}
+  ],
+  "limits": {"max_calls": 90, "max_seconds": 600},
+  "inference": {"model": "nvidia/nemotron-3-super-120b-a12b", "fallback_models": ["nvidia/ising-calibration-1.5-31b"], "max_attempts": 2, "requests_per_minute": 20, "timeout_seconds": 30}
+}

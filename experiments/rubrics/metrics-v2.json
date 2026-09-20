@@ -1,0 +1,24 @@
+{
+  "version": "metrics-2",
+  "definitions": {
+    "payment_rate": "Bills fully paid by their day-end deadline / bills settled. Undefined before any settlement.",
+    "commitment_fulfillment": "Fulfilled non-alliance commitments / accepted commitments due. Undefined when none are due. Offered but unaccepted deals are excluded.",
+    "contribution_gini": "Pairwise absolute contribution differences / (2 * actor count * total contribution). Undefined when no contributions occurred.",
+    "goals_met": "Actors whose current private cash meets their authored savings target; activity progress is reported separately.",
+    "survival_censored": "True unless eviction was observed; reaching the horizon is not an eventual survival time.",
+    "conflicts": "Quiet-preferring actor-days disrupted by at least one party.",
+    "conflicts_per_actor_day": "Conflict count / (actor count * settled days). Undefined before any settlement; adjusts for different observed survival durations.",
+    "free_rider_candidates": "Actor IDs with zero contribution when someone else contributed; a descriptive screening flag, not proof of intentional exploitation.",
+    "actor_action_counts": "Action-kind counts per actor in this run segment, excluding inherited branch decisions.",
+    "refusals_after_observed_breach": "Reject events after an earlier or same-day breach visible to the rejecting actor; descriptive association, not a causal claim.",
+    "unpaid_bills_followed_by_recovery": "Unpaid bills with a later fully paid bill within the observed horizon.",
+    "dominant_action_share": "Most frequent action kind / decisions in this run segment. Branches retain world totals but this distribution describes the child segment.",
+    "fallback_rate": "Fallback decisions committed in this run segment / decisions committed in this same segment. Inherited branch failures are excluded from both numerator and denominator; undefined for an empty segment.",
+    "accounting_balanced": "Initial household cash + automatic income - external expenses equals current household cash. Transfers and lending conserve household cash.",
+    "usage": "Actor calls, tokens, known costs, unpriced calls and fallbacks. Evaluator/supervisor jobs have separate artifacts. Unknown prices are never labeled measured zero cost. On branches these counters include inherited usage; do not sum parent and child usage to count physical requests.",
+    "segment_decisions": "Number of committed decisions in this run segment, excluding inherited decisions.",
+    "segment_fallbacks": "Number of committed decisions in this run segment with a recorded fallback reason.",
+    "inherited_fallbacks": "Cumulative checkpoint fallback count minus this segment fallback count. Not a numerator for segment fallback_rate."
+  },
+  "limits": "Reciprocity, exploitation and information value need paired interventions and event inspection. These counts alone do not measure game-theoretic equilibrium, enjoyment or strategic optimality."
+}
