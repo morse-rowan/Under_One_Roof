@@ -3,7 +3,9 @@
 local shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Data = require(shared:WaitForChild("HousepadData"))
 local Text = require(shared:WaitForChild("RoundText"))
+local Guide = require(shared:WaitForChild("RoundGuide"))
 local Kit = require(script.Parent.MenuKit)
+local Tasks = require(script.Parent.HousepadTasks)
 local View = {}
 View.size = Vector2.new(1280, 720)
 local C = {
@@ -373,6 +375,8 @@ local function sidebar(parent: Instance, o: any, view: any, actions: any)
         13,
         C.muted
     )
+    local goal = frame(rail, "ReserveProgress", 17, 354, 150, 5, C.line, 3)
+    frame(goal, "Fill", 0, 0, 150 * Guide.summary(o).goalFraction, 5, C.good, 3)
     button(
         rail,
         "Apartment",
@@ -421,6 +425,9 @@ local function details(parent: Instance, o: any, view: any, actions: any)
     if metric then
         note(metric.detail)
     end
+    local summary = Guide.summary(o)
+    note(summary.objective, C.ink)
+    note(summary.inspection)
     for _, item in o.items do
         if not item.resolved then
             note(Text.issue(item, o.actor.id), C.ink)
@@ -438,12 +445,7 @@ local function details(parent: Instance, o: any, view: any, actions: any)
             )
         end
     end
-    if order == 0 then
-        note(
-            "No outstanding messes. Use the conversation to work out who can help with tonight's rent."
-        )
-    end
-    label(rail, "YOUR CHOICES", 16, 230, 315, 19, 11, C.muted, true)
+    label(rail, string.upper(summary.choices), 16, 230, 315, 19, 11, C.muted, true)
     local choices = Kit.scroller(rail, {
         Name = "Choices",
         Position = UDim2.fromOffset(16, 257),
@@ -457,7 +459,7 @@ local function details(parent: Instance, o: any, view: any, actions: any)
             local item = button(
                 choices,
                 "Choice_" .. index,
-                Text.action(action),
+                Guide.choice(action, o),
                 0,
                 0,
                 303,
@@ -539,7 +541,23 @@ local function result(parent: Instance, o: any, actions: any)
         19,
         C.muted
     )
-    button(panel, "Restart", "Start a new household", 28, 304, 290, 48, true, actions.restart)
+    label(
+        panel,
+        string.format(
+            "$%d saved / $%d goal · $%d personal debt",
+            o.actor.cash,
+            o.actor.goal,
+            o.actor.debt
+        ),
+        28,
+        259,
+        570,
+        32,
+        17,
+        C.ink,
+        true
+    )
+    button(panel, "Restart", "Start a new household", 28, 319, 290, 48, true, actions.restart)
 end
 
 local function activity(parent: Instance, o: any)
@@ -634,8 +652,10 @@ function View.render(canvas: Instance, payload: any, view: any, actions: any): a
             result(canvas, o, actions)
         elseif o.phase == "work" then
             work(canvas, o)
-        elseif o.phase == "action_one" or o.phase == "action_two" or view.channel == "activity" then
+        elseif view.channel == "activity" then
             activity(canvas, o)
+        elseif o.phase == "action_one" or o.phase == "action_two" then
+            Tasks.render(canvas, o, actions, View)
         else
             handles.chat = chat(canvas, o, view, actions)
         end
@@ -657,7 +677,20 @@ function View.render(canvas: Instance, payload: any, view: any, actions: any): a
     end
     button(footer, "Home", "Home [H]", 815, 0, 145, 31, false, actions.home)
     if o.status == "running" then
-        button(footer, "Next", "Continue [T]  →", 974, 0, 212, 31, true, actions.ready)
+        button(
+            footer,
+            "Next",
+            if o.phase == "night"
+                then "Settle rent [T]  →"
+                elseif o.phase == "work" then "Collect pay [T]  →"
+                else "Continue [T]  →",
+            974,
+            0,
+            212,
+            31,
+            true,
+            actions.ready
+        )
     end
     if payload.developer then
         local box = Kit.make("TextBox", {

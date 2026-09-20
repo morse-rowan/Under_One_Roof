@@ -129,6 +129,192 @@ local function complaint(observation: any): any?
     return worst
 end
 
+local function contains(text: string, words: { string }): boolean
+    local lower = string.lower(text)
+    for _, word in words do
+        if string.find(lower, word, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function isRequest(speech: string): boolean
+    return string.find(speech, "?", 1, true) ~= nil
+        or contains(speech, {
+            "can you",
+            "could you",
+            "would you",
+            "will you",
+            "please",
+            "help",
+            "what can",
+            "how do",
+            "should we",
+            "can we",
+            "could we",
+            "pay rent",
+            "cover rent",
+            "clean ",
+            "cancel ",
+        })
+end
+
+-- Observations retain only messages this actor is allowed to read. Find the
+-- newest request from another actor in this stop, skipping status lines and
+-- generated answers so they cannot block another roommate's turn.
+local function currentRequest(observation: any): (any?, number?)
+    for index = #observation.events, 1, -1 do
+        local event = observation.events[index]
+        if
+            event.kind == "message"
+            and event.day == observation.day
+            and event.phase == observation.phase
+            and event.data.actor ~= observation.actor.id
+        then
+            local speech = event.data.speech
+            if
+                (event.data.channel == "group" or event.data.target == observation.actor.id)
+                and type(speech) == "string"
+                and isRequest(speech)
+            then
+                return event, index
+            end
+        end
+    end
+    return nil, nil
+end
+
+-- The event history is the acknowledgement record. A matching later message
+-- means this observation has already produced its one bounded reply.
+local function alreadyReplied(
+    observation: any,
+    messageIndex: number,
+    sender: string,
+    channel: string
+): boolean
+    for index = messageIndex + 1, #observation.events do
+        local event = observation.events[index]
+        if
+            event.kind == "message"
+            and event.day == observation.day
+            and event.phase == observation.phase
+            and event.data.actor == observation.actor.id
+            and event.data.channel == channel
+            and (channel == "group" or event.data.target == sender)
+        then
+            return true
+        end
+    end
+    return false
+end
+
+local function hasSpokenThisStop(observation: any): boolean
+    for _, event in observation.events do
+        if
+            event.kind == "message"
+            and event.day == observation.day
+            and event.phase == observation.phase
+            and event.data.actor == observation.actor.id
+        then
+            return true
+        end
+    end
+    return false
+end
+
+local function replyToMessage(observation: any, style: string): (any?, boolean)
+    local incoming, messageIndex = currentRequest(observation)
+    if not incoming or not messageIndex then
+        return nil, false
+    end
+    local sender = incoming.data.actor
+    local channel = incoming.data.channel
+    if alreadyReplied(observation, messageIndex, sender, channel) then
+        return nil, true
+    end
+
+    local speech = incoming.data.speech
+    local contribute = pick(observation.candidates, "contribute")
+    local cleanup = worstCleanup(observation)
+    local cancel = pick(observation.candidates, "cancel_plan")
+    local reply: string?
+    local asksRent = contains(speech, { "rent", "contribute", "cover", "pay" })
+    local asksCleanup = contains(speech, { "clean", "dishes", "trash", "mess", "leak", "roach" })
+    local asksCancellation = contains(speech, { "cancel", "drop", "stop", "party", "plan" })
+
+    if asksCancellation then
+        if cancel then
+            if style == "household" then
+                reply = "I could call it off, but I have not decided yet."
+            else
+                reply = "I could call it off, but I need to see rent handled first."
+            end
+        else
+            reply = "I cannot call off a plan right now."
+        end
+    elseif asksCleanup then
+        if cleanup then
+            if style == "household" then
+                reply = string.format(
+                    "Requirement #%d is still open. I could pay to clear it, but I have not yet.",
+                    cleanup.reference
+                )
+            else
+                reply = string.format(
+                    "I could pay to clear requirement #%d, but I need to hang on to my cash until tonight.",
+                    cleanup.reference
+                )
+            end
+        else
+            reply = "I cannot clear a mess right now."
+        end
+    elseif asksRent then
+        local owed = math.max(0, observation.rent - observation.rentPaid)
+        if not contribute or owed == 0 then
+            reply = "I cannot put money toward rent right now."
+        elseif style == "household" then
+            reply = string.format("We still need $%d. I can spare $%d.", owed, contribute.amount)
+        elseif observation.phase == "night" or observation.heat >= 40 then
+            reply = string.format(
+                "We still need $%d. Keeping the place matters more than my reserve right now.",
+                owed
+            )
+        else
+            reply = string.format(
+                "We still need $%d. I need to hang on to my cash until tonight.",
+                owed
+            )
+        end
+    elseif contains(speech, { "help", "how", "what can", "could you", "can you" }) then
+        local options = {}
+        if contribute then
+            table.insert(options, string.format("put $%d toward rent", contribute.amount))
+        end
+        if cleanup then
+            table.insert(options, string.format("pay to clear requirement #%d", cleanup.reference))
+        end
+        if cancel then
+            table.insert(options, "call off my pending plan")
+        end
+        if #options == 0 then
+            reply = "I only have waiting open right now."
+        else
+            reply = "I could " .. table.concat(options, " or ") .. ", but I have not chosen yet."
+        end
+    end
+
+    if reply then
+        return {
+            channel = channel,
+            target = if channel == "private" then sender else nil,
+            speech = reply,
+        },
+            true
+    end
+    return nil, true
+end
+
 -- One short line per turn, from the roommate's own visible evidence only.
 local function speak(observation: any, style: string, note: string?): any?
     if observation.messagesRemaining <= 0 then
@@ -143,6 +329,13 @@ local function speak(observation: any, style: string, note: string?): any?
             target = asker,
             speech = "Put something toward rent first, then I'll think about it.",
         }
+    end
+    local direct, considered = replyToMessage(observation, style)
+    if considered then
+        return direct
+    end
+    if hasSpokenThisStop(observation) then
+        return nil
     end
     local owed = observation.rent - observation.rentPaid
     if owed > 0 and observation.phase == "night" then

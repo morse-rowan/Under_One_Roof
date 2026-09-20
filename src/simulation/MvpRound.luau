@@ -295,17 +295,23 @@ function Round.new(actors: any, seed: number?, overrides: any?): any
     return s
 end
 
-function Round.candidates(s: any, id: string): any
+function Round.actionBudget(s: any, id: string): (number, number)
     local actor = s.actors[id]
     if not actor or s.status ~= "running" or s.phase == "work" then
-        return {}
+        return 0, 0
     end
     local limit = if actionPhase(s)
         then (if actor.role == "player" then s.config.playerActions else s.config.npcActions)
         else s.config.stopActions
-    if (s.used[id] or 0) >= limit then
+    return math.max(0, limit - (s.used[id] or 0)), limit
+end
+
+function Round.candidates(s: any, id: string): any
+    local remaining = Round.actionBudget(s, id)
+    if remaining == 0 then
         return {}
     end
+    local actor = s.actors[id]
     local out = { { kind = "wait" } }
     if actor.cash > 0 and s.rentPaid < s.config.rent then
         table.insert(out, {
@@ -735,6 +741,7 @@ end
 
 function Round.observe(s: any, id: string): any
     assert(s.actors[id], "Unknown actor")
+    local actionsRemaining, actionLimit = Round.actionBudget(s, id)
     local events, plans, recaps = {}, {}, {}
     for _, event in s.events do
         if U.visible(event, id) then
@@ -774,6 +781,8 @@ function Round.observe(s: any, id: string): any
         events = events,
         recaps = recaps,
         candidates = Round.candidates(s, id),
+        actionsRemaining = actionsRemaining,
+        actionLimit = actionLimit,
         rules = U.copy(s.config),
         messagesRemaining = if s.status == "running" and stopPhase(s)
             then math.max(0, s.config.messages - (s.messageCounts[id] or 0))
