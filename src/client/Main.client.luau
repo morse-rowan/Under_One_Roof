@@ -5,7 +5,14 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local shared = ReplicatedStorage:WaitForChild("Shared")
-if require(shared:WaitForChild("BuildInfo")).mode == "visual-sandbox" then
+local buildInfo = require(shared:WaitForChild("BuildInfo"))
+if buildInfo.menuPreview then
+    -- Spawned so the study's own WaitForChild never delays the running mode.
+    task.spawn(function()
+        require(script.Parent.MenuPreview).start()
+    end)
+end
+if buildInfo.mode == "visual-sandbox" then
     require(script.Parent.VisualSandbox).start()
     return
 end

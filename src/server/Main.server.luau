@@ -2,6 +2,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local shared = ReplicatedStorage:WaitForChild("Shared")
+if require(shared:WaitForChild("BuildInfo")).menuPreview then
+    require(script.Parent.MenuPreview).start()
+end
 if require(shared:WaitForChild("BuildInfo")).mode == "visual-sandbox" then
     require(script.Parent.VisualSandbox).start()
     return
