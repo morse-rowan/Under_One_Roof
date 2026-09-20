@@ -21,12 +21,14 @@ return table.freeze({
     -- on their fixed tiles if a playtest finds the movement wrong.
     movingRoommates = true,
     -- Live roommate decisions through the local Nemotron bridge.
-    -- Off by default so normal play, Studio sessions and every automated check stay
-    -- inference-free: the deterministic policy plays the whole household on its own.
-    -- Start `./tools/nemotron_proxy.ps1`, then `/brain on` in the HousePad command
-    -- box, or flip `enabled` here to have it on from the first morning.
+    -- On from the first morning, so a session is live without anyone remembering a
+    -- command. Start `./tools/nemotron_proxy.ps1` first; with no bridge reachable
+    -- each turn fails fast and the deterministic policy takes it instead, so play
+    -- still works with no key, no network and no inference. `/brain off` in the
+    -- HousePad command box forces the deterministic household for a whole run.
+    -- Automated checks are unaffected: they pass their own adapter, never this.
     brain = table.freeze({
-        enabled = false,
+        enabled = true,
         maxCalls = 120,
         deadline = 8,
     }),

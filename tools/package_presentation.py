@@ -35,10 +35,15 @@ def build(gateway_url=None, invited=()):
     staged = out / "src"
     shutil.copytree(ROOT / "src", staged)
     info = (ROOT / "src/shared/BuildInfo.luau").read_text(encoding="utf-8")
-    if live:
-        if info.count("enabled = false") != 1:
-            raise ValueError("BuildInfo switch changed; inspect the release builder before use")
-        info = info.replace("enabled = false", "enabled = true", 1)
+    # State the brain switch outright in both configurations. Reading it as
+    # "whatever the working tree happens to default to" made an offline release
+    # ship live the moment that default flipped.
+    on, off = info.count("enabled = true"), info.count("enabled = false")
+    if on + off != 1:
+        raise ValueError("BuildInfo switch changed; inspect the release builder before use")
+    info = info.replace(
+        "enabled = true" if on else "enabled = false",
+        "enabled = true" if live else "enabled = false", 1)
     (staged / "shared" / "BuildInfo.luau").write_text(info, encoding="utf-8")
     config = "return {\n    allowedUserIds = {%s},\n    brainUrl = %s,\n    brainSecretName = \"ROOMMATE_GATEWAY_TOKEN\",\n}\n" % (
         ", ".join(map(str, sorted(set(invited)))),
