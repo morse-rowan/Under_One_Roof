@@ -113,4 +113,4 @@ Write-Host ''
 Write-Host 'Next:'
 Write-Host "  1. Roblox secret ROOMMATE_GATEWAY_TOKEN = the token above, domain $(([uri]$publicUrl).Host)"
 Write-Host "  2. .\tools\publish_place.ps1 -GatewayUrl $publicUrl/decide -Invite <userId>"
-Write-Host '  Stop both with: Stop-Process -Id {0},{1}' -f $bridge.Id, $tunnel.Id
+Write-Host ("  Stop both with: Stop-Process -Id {0},{1}" -f $bridge.Id, $tunnel.Id)
