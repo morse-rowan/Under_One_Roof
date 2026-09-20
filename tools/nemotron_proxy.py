@@ -120,6 +120,63 @@ def extract_json(text):
     return value if isinstance(value, dict) else None
 
 
+# Only the shapes a chat model commonly emits around a correct answer. The game's
+# validator stays strict about meaning: nothing here invents a choice, retargets a
+# message or makes an illegal action legal, and `RoundBrain.validate` re-checks the
+# result against the live round afterwards.
+CHOICE_KEYS = ("choice", "index", "candidate", "choice_index", "action_index", "selection")
+MESSAGE_KEYS = ("message", "msg", "reply", "speech_message")
+ASSESSMENT_KEYS = ("assessment", "summary", "rationale", "reason", "reasoning")
+MAX_ASSESSMENT = 800
+
+
+def repair_decision(value):
+    """Normalise a decision object, or return None if it is not one."""
+    if not isinstance(value, dict):
+        return None
+    lower = {str(key).lower(): item for key, item in value.items()}
+
+    def pick(names):
+        for name in names:
+            if name in lower:
+                return lower[name]
+        return None
+
+    choice = pick(CHOICE_KEYS)
+    if isinstance(choice, bool):
+        choice = None  # `true` is not an index.
+    elif isinstance(choice, str):
+        choice = int(choice) if choice.strip().lstrip("-").isdigit() else None
+    elif isinstance(choice, float) and choice.is_integer():
+        choice = int(choice)
+    elif not isinstance(choice, int):
+        choice = None
+
+    message = pick(MESSAGE_KEYS)
+    if isinstance(message, str):
+        # A bare string at a stop is a board message; the validator still checks
+        # the phase, the budget and the length.
+        message = {"channel": "group", "target": None, "speech": message} if message.strip() else None
+    elif isinstance(message, dict):
+        fields = {str(key).lower(): item for key, item in message.items()}
+        message = {
+            "channel": fields.get("channel"),
+            "target": fields.get("target"),
+            "speech": fields.get("speech") or fields.get("text") or fields.get("content"),
+        }
+    elif message is not None:
+        message = None
+
+    assessment = pick(ASSESSMENT_KEYS)
+    if not isinstance(assessment, str):
+        assessment = ""
+    # Truncated rather than refused: an over-long summary is not a wrong decision,
+    # and it is discarded before it can reach a roommate anyway.
+    assessment = assessment.encode()[:MAX_ASSESSMENT].decode(errors="ignore")
+
+    return {"assessment": assessment, "choice": choice, "message": message}
+
+
 def decide_nemotron(system, observation, max_tokens):
     """Return (ok, decision, detail). The decision is only shape-checked here.
 
@@ -153,7 +210,7 @@ def decide_nemotron(system, observation, max_tokens):
         if len(raw) > 262144:
             return False, None, {"error": "response too large"}
         result = json.loads(raw)
-        decision = extract_json(result["choices"][0]["message"]["content"] or "")
+        decision = repair_decision(extract_json(result["choices"][0]["message"]["content"] or ""))
         if decision is None:
             return False, None, {"error": "no json object in reply"}
         return True, decision, {"usage": result.get("usage"), "model": result.get("model")}

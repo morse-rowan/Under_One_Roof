@@ -36,6 +36,46 @@ class ExtractJsonTests(unittest.TestCase):
             self.assertIsNone(bridge.extract_json(bad), bad)
 
 
+class RepairDecisionTests(unittest.TestCase):
+    def test_keeps_a_correct_object(self):
+        self.assertEqual(
+            bridge.repair_decision({"assessment": "short", "choice": 2, "message": None}),
+            {"assessment": "short", "choice": 2, "message": None},
+        )
+
+    def test_drops_unknown_keys(self):
+        repaired = bridge.repair_decision({"choice": 0, "confidence": 0.9, "notes": "hi"})
+        self.assertEqual(set(repaired), {"assessment", "choice", "message"})
+
+    def test_accepts_common_aliases(self):
+        self.assertEqual(bridge.repair_decision({"index": 3})["choice"], 3)
+        self.assertEqual(bridge.repair_decision({"Choice": "1"})["choice"], 1)
+        self.assertEqual(bridge.repair_decision({"rationale": "why"})["assessment"], "why")
+
+    def test_refuses_a_choice_that_is_not_an_index(self):
+        for bad in ({"choice": True}, {"choice": "wait"}, {"choice": 1.5}, {"choice": [1]}):
+            self.assertIsNone(bridge.repair_decision(bad)["choice"], bad)
+
+    def test_wraps_a_bare_string_message(self):
+        message = bridge.repair_decision({"message": "Rent is short."})["message"]
+        self.assertEqual(message, {"channel": "group", "target": None, "speech": "Rent is short."})
+        self.assertIsNone(bridge.repair_decision({"message": "   "})["message"])
+
+    def test_normalises_message_fields(self):
+        message = bridge.repair_decision(
+            {"message": {"Channel": "private", "target": "blue", "text": "hi"}}
+        )["message"]
+        self.assertEqual(message, {"channel": "private", "target": "blue", "speech": "hi"})
+
+    def test_truncates_an_over_long_assessment(self):
+        repaired = bridge.repair_decision({"assessment": "x" * 2000, "choice": 0})
+        self.assertEqual(len(repaired["assessment"].encode()), bridge.MAX_ASSESSMENT)
+
+    def test_refuses_non_objects(self):
+        for bad in (None, [], "text", 7):
+            self.assertIsNone(bridge.repair_decision(bad), bad)
+
+
 class OfflineDecisionTests(unittest.TestCase):
     def test_action_takes_the_first_candidate(self):
         # `MvpRound` always offers `wait` first, so index 0 is the inert choice.

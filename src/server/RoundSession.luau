@@ -24,6 +24,7 @@ local Routine = require(shared:WaitForChild("RoundRoutine"))
 local Clues = require(script.Parent.RoundClues)
 local BrainService = require(script.Parent.RoundBrainService)
 local Errands = require(script.Parent.RoundErrands)
+local Voices = require(script.Parent.RoundVoices)
 
 local CHORE_ACTIONS = { finish_chore = true, pickup_trash = true }
 
@@ -153,8 +154,13 @@ function Session.start(sandbox: any)
         })
     end
 
+    -- A roommate's line also appears above its bean, so a live reply is visible in
+    -- the room and not only in the pad's message list.
+    local voices = Voices.new(sandbox.scene, Setup.beans)
+
     local function changed(session: any)
         syncProps(session)
+        voices.sync(session, Round.observe(session.state, session.playerId))
         Clues.sync(
             session.clues,
             Interactions.markers(config, Round.observe(session.state, session.playerId)),
@@ -195,6 +201,11 @@ function Session.start(sandbox: any)
         end
         for _, model in if previous then previous.props else {} do
             model:Destroy()
+        end
+        if previous then
+            -- A new household starts with the room quiet, not with the last one's
+            -- lines still hanging over the beans.
+            voices.clear(previous)
         end
     end
 

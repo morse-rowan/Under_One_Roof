@@ -19,7 +19,7 @@ return function()
     end
     -- The model adapter and the errand driver are server-only on purpose: a client
     -- must never be able to read the bridge URL or drive a roommate.
-    for _, name in { "RoundBrainService", "RoundErrands" } do
+    for _, name in { "RoundBrainService", "RoundErrands", "RoundVoices" } do
         assert(server:FindFirstChild(name) and server[name]:IsA("ModuleScript"), name .. " missing")
         assert(not scripts.Client:FindFirstChild(name), name .. " must not ship to clients")
     end
