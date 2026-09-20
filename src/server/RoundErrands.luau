@@ -35,6 +35,9 @@ function Errands.new(deps: any): any
     table.sort(order)
 
     local service = {}
+    local function blockedFor(bean: string): any
+        return if roommates.blockedFor then roommates.blockedFor(bean) else roommates.blocked
+    end
 
     local function phaseKey(state: any): string
         return state.day .. "|" .. state.phase .. "|" .. tostring(state.status)
@@ -47,7 +50,14 @@ function Errands.new(deps: any): any
         if not home then
             return nil
         end
-        local errand = Routine.errand(config, observation, Policy, home, roommates.blocked)
+        local errand = Routine.errand(
+            config,
+            observation,
+            Policy,
+            home,
+            blockedFor(beans[id]),
+            roommates.cellOf(beans[id])
+        )
         errand.done = false
         return errand
     end
@@ -125,6 +135,13 @@ function Errands.new(deps: any): any
             end
         end
 
+        if errand.station and not errand.done then
+            local goal = Routine.approach(config, errand.station, blockedFor(bean), cell)
+            if not goal then
+                return
+            end
+            errand.goal = goal
+        end
         if not Routine.arrived(cell, errand.goal) then
             service.walk(bean, cell, errand.goal)
             return
@@ -154,7 +171,7 @@ function Errands.new(deps: any): any
     end
 
     function service.walk(bean: string, cell: any, goal: any)
-        local steps = Routine.path(config, cell, goal, roommates.blocked)
+        local steps = Routine.path(config, cell, goal, blockedFor(bean))
         if steps and steps[1] then
             roommates.step(bean, steps[1])
         end

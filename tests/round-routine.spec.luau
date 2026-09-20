@@ -96,6 +96,15 @@ return function()
     expect(beside and not walkable[Grid.key(beside)], "the approach tile is walkable")
     expect(World.adjacent(beside, { c = 2, r = 0 }), "the approach tile touches the station")
     local litter = World.litterCell(config, 7)
+    local occupied = table.clone(walkable)
+    occupied["4,2"] = true -- Amber's home beside the rent table.
+    local from = { c = 2, r = 3 }
+    local rentApproach = Routine.approach(config, { c = 3, r = 2 }, occupied, from)
+    expect(
+        rentApproach ~= nil and Grid.key(rentApproach) == "2,2",
+        "use the reachable side of the rent table"
+    )
+    expect(Routine.path(config, from, rentApproach, occupied) ~= nil, "do not route through Amber")
     expect(
         Grid.key(Routine.approach(config, litter, walkable) :: any) == Grid.key(litter),
         "floor litter is stood on, not approached"

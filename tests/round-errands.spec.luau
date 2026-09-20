@@ -37,6 +37,15 @@ local function apartment()
         roommates = {
             enabled = true,
             blocked = blocked,
+            blockedFor = function(name: string): any
+                local occupied = table.clone(blocked)
+                for other, actor in cells do
+                    if other ~= name then
+                        occupied[Grid.key(actor.cell)] = true
+                    end
+                end
+                return occupied
+            end,
             cellOf = function(name: string): any?
                 return if cells[name] then cells[name].cell else nil
             end,

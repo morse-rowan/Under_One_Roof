@@ -299,6 +299,19 @@ function Sandbox.start(options: any?)
             enabled = mobile,
             -- Where the grid says furniture is, with the roommates left out.
             blocked = blocked,
+            blockedFor = function(name: string): any
+                local reserved = table.clone(blocked)
+                local mine = npcs[name]
+                for _, other in occupants() do
+                    if other ~= mine then
+                        reserved[Grid.key(other.cell)] = true
+                        if other.target then
+                            reserved[Grid.key(other.target)] = true
+                        end
+                    end
+                end
+                return reserved
+            end,
             cellOf = function(name: string): any?
                 local actor = npcs[name]
                 return if actor then actor.target or actor.cell else nil

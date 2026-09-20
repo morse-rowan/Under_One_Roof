@@ -53,20 +53,31 @@ end
 -- Somewhere the roommate can actually stand to reach `station`: the tile itself when
 -- it is floor, otherwise the first free neighbour in the fixed direction order. A
 -- fixture is never walkable, so cleaning the sink means standing beside it.
-function Routine.approach(config: any, station: Cell?, blocked: any): Cell?
+function Routine.approach(config: any, station: Cell?, blocked: any, from: Cell?): Cell?
     if not station then
         return nil
     end
-    if not blocked[Grid.key(station)] then
+    if not blocked[Grid.key(station)] and not from then
         return station
+    end
+    local choices = {}
+    if not blocked[Grid.key(station)] then
+        table.insert(choices, station)
     end
     for _, direction in DIRECTIONS do
         local neighbour = Grid.destination(config, station, direction, blocked)
         if neighbour then
-            return neighbour
+            table.insert(choices, neighbour)
         end
     end
-    return nil
+    local best, distance = nil, math.huge
+    for _, cell in choices do
+        local path = if from then Routine.path(config, from, cell, blocked) else {}
+        if path and #path < distance then
+            best, distance = cell, #path
+        end
+    end
+    return best
 end
 
 -- Breadth-first over the same `Grid.destination` the player's hops use, so the
@@ -111,14 +122,23 @@ end
 --
 -- A roommate with nothing to walk to goes home and waits: an idle wander would read
 -- as activity the round never took.
-function Routine.errand(config: any, observation: any, policy: any, home: Cell, blocked: any): any
+function Routine.errand(
+    config: any,
+    observation: any,
+    policy: any,
+    home: Cell,
+    blocked: any,
+    from: Cell?
+): any
     local decision = policy.decide(observation, policy.styleFor(observation.actor.id), false)
     local action = decision.action
     local station = Routine.station(config, action, observation.items)
-    local goal = Routine.approach(config, station, blocked)
+    local goal = Routine.approach(config, station, blocked, from or home)
     if not goal then
         -- Includes `wait`, `cancel_plan` and anything with no place in the room.
-        return { action = if station then nil else action, goal = home, station = nil }
+        -- Occupants can clear the route on a later beat; retain the station so
+        -- the driver retries without committing from home.
+        return { action = action, goal = home, station = station }
     end
     return { action = action, goal = goal, station = station }
 end
