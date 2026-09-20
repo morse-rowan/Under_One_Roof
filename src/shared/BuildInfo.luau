@@ -7,6 +7,10 @@ return table.freeze({
     -- "visual-sandbox" movement and palette comparison only
     -- "gameplay"       the earlier chore/UI prototype
     mode = "mvp",
+    -- The Nemotron sanity bubble that floats over Green in Studio. It is a
+    -- connectivity probe, not part of the round, and it reads as a stray debug
+    -- label during a demo. Set true to get the typed-prompt check back.
+    sanityBubble = false,
     -- Menu visual study. Draws candidate menu looks over whichever mode is
     -- running. It covers the playable HUD, so it is off while the round is the
     -- default mode; set true to go back to judging the looks.

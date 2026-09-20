@@ -24,7 +24,7 @@ function Sandbox.start(options: any?)
         Grid,
         { mobileRoommates = mobile }
     )
-    if RunService:IsStudio() then
+    if RunService:IsStudio() and require(shared.BuildInfo).sanityBubble == true then
         require(script.Parent.NemotronSanity).start(scene)
     end
     Lighting.ClockTime = 14

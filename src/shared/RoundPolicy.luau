@@ -141,6 +141,10 @@ local function contains(text: string, words: { string }): boolean
     return false
 end
 
+-- The player gets an answer to anything they type; a roommate only answers another
+-- roommate when the line actually asks for something. Both halves matter: silence
+-- after a typed message reads as a broken household, while roommates acknowledging
+-- each other's ambient openers loops the stop into an endless chorus.
 local function isRequest(speech: string): boolean
     return string.find(speech, "?", 1, true) ~= nil
         or contains(speech, {
@@ -162,9 +166,22 @@ local function isRequest(speech: string): boolean
         })
 end
 
+-- Player colors and roommate colors are disjoint by construction in `RoundSetup`,
+-- so the style table doubles as the roster of who is not the player.
+local function isRoommate(id: string): boolean
+    return Policy.styles[id] ~= nil
+end
+
+local ACKNOWLEDGEMENTS = {
+    green = "Heard you. I'll keep that in mind before tonight.",
+    red = "Noted. I'll see what my budget looks like first.",
+    amber = "Sure, I'm listening. Let's sort it out together.",
+    violet = "Fine, but don't expect me to carry this one alone.",
+}
+
 -- Observations retain only messages this actor is allowed to read. Find the
--- newest request from another actor in this stop, skipping status lines and
--- generated answers so they cannot block another roommate's turn.
+-- newest one from another actor in this stop. A later reply of this actor's own
+-- is what stops a line being answered twice; see `alreadyReplied`.
 local function currentRequest(observation: any): (any?, number?)
     for index = #observation.events, 1, -1 do
         local event = observation.events[index]
@@ -178,7 +195,8 @@ local function currentRequest(observation: any): (any?, number?)
             if
                 (event.data.channel == "group" or event.data.target == observation.actor.id)
                 and type(speech) == "string"
-                and isRequest(speech)
+                and #speech > 0
+                and (not isRoommate(event.data.actor) or isRequest(speech))
             then
                 return event, index
             end
@@ -306,15 +324,18 @@ local function replyToMessage(observation: any, style: string): (any?, boolean)
         end
     end
 
-    if reply then
-        return {
-            channel = channel,
-            target = if channel == "private" then sender else nil,
-            speech = reply,
-        },
-            true
+    if not reply then
+        -- No topic matched, so acknowledge in this roommate's own voice rather
+        -- than saying nothing. Four distinct lines keep a group thread from
+        -- answering the player in chorus.
+        reply = ACKNOWLEDGEMENTS[observation.actor.id] or "Heard you."
     end
-    return nil, true
+    return {
+        channel = channel,
+        target = if channel == "private" then sender else nil,
+        speech = reply,
+    },
+        true
 end
 
 -- One short line per turn, from the roommate's own visible evidence only.
