@@ -22,6 +22,14 @@ py -3 tools/wiki_lint.py --root "PATH_TO_STEELHACKS_KNOWLEDGE_BASE"
 
 Update the absolute knowledge-base path in AGENTS.md when relocating. Run agents from this directory or the Steelhacks knowledge-base root; ensure each session can read both folders and write the agent-owned wiki.
 
+## Local demo
+
+Double-click `tools\start-demo.bat`. It rebuilds the place, starts the roommate
+bridge, waits until the bridge answers, and opens the place in Studio; press Play
+and leave the bridge window open. Live roommates are on by default, so nothing
+has to be typed to reach the model. With no bridge running each turn falls back
+to the deterministic household, and `/brain off` forces that for a whole run.
+
 ## Local development
 
 Windows setup uses Roblox Studio, Luau, Git, and pinned tools from `rokit.toml`. Git and Python 3 are prerequisites; Studio can be installed with `winget install --id Roblox.RobloxStudio --exact --source winget`.

@@ -3,3 +3,7 @@
 *.rbxl binary
 *.png binary
 *.fbx binary
+
+# Batch files are parsed line by line by cmd.exe; CRLF keeps labels and
+# `goto` targets intact on a checkout that would otherwise normalise to LF.
+*.bat text eol=crlf
