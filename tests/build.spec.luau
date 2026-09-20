@@ -19,9 +19,18 @@ return function()
     end
     -- The model adapter and the errand driver are server-only on purpose: a client
     -- must never be able to read the bridge URL or drive a roommate.
-    for _, name in { "RoundBrainService", "RoundErrands", "RoundVoices" } do
+    for _, name in
+        {
+            "RoundBrainService",
+            "RoundErrands",
+            "RoundVoices",
+            "PresentationConfig",
+            "PresentationAccess",
+        }
+    do
         assert(server:FindFirstChild(name) and server[name]:IsA("ModuleScript"), name .. " missing")
         assert(not scripts.Client:FindFirstChild(name), name .. " must not ship to clients")
+        assert(not shared:FindFirstChild(name), name .. " must not be replicated")
     end
     assert(server.VisualSandbox:IsA("ModuleScript"), "Visual sandbox server missing")
     assert(server.VisualStudyScene:IsA("ModuleScript"), "Visual scene builder missing")

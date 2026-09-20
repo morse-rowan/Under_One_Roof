@@ -57,6 +57,14 @@ return function()
     expect(state.rentPaid >= paidBefore, "contributions survive a night inside the cycle")
     expect(countEvents(state, "rent_settled") == 0, "rent does not settle on day one")
     expect(countEvents(state, "rent_pending") >= 1, "a night inside the cycle only reports")
+    for _, event in state.events do
+        if event.kind == "message" and event.day == 1 then
+            expect(
+                not string.find(event.data.speech, "settles tonight", 1, true),
+                "no false rent deadline on day one"
+            )
+        end
+    end
 
     while state.day < 4 and state.status == "running" do
         expect(Flow.advance(Round, Policy, state))

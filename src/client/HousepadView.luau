@@ -779,8 +779,10 @@ function View.render(canvas: Instance, payload: any, view: any, actions: any): a
         button(
             footer,
             "Next",
-            if o.phase == "night"
-                then "Settle rent [T]  →"
+            if payload.busy
+                then "Roommates are thinking…"
+                elseif o.phase == "night" and (o.rentDueIn or 0) == 0 then "Settle rent [T]  →"
+                elseif o.phase == "night" then "End day [T]  →"
                 elseif o.phase == "work" then "Collect pay [T]  →"
                 else "Continue [T]  →",
             974,
@@ -788,8 +790,15 @@ function View.render(canvas: Instance, payload: any, view: any, actions: any): a
             212,
             31,
             true,
-            actions.ready
+            function()
+                if not payload.busy then
+                    actions.ready()
+                end
+            end
         )
+    end
+    if not payload.developer and payload.notice then
+        label(canvas, payload.notice, 42, 657, 1186, 38, 13, C.ink)
     end
     if payload.developer then
         local box = Kit.make("TextBox", {

@@ -54,7 +54,7 @@ function Errands.new(deps: any): any
 
     -- Called every heartbeat. Cheap when nothing is due: one clock comparison.
     function service.update(session: any)
-        if not roommates.enabled then
+        if not roommates.enabled or session.busy then
             return
         end
         local state = session.state

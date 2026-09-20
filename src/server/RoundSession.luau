@@ -25,6 +25,8 @@ local Clues = require(script.Parent.RoundClues)
 local BrainService = require(script.Parent.RoundBrainService)
 local Errands = require(script.Parent.RoundErrands)
 local Voices = require(script.Parent.RoundVoices)
+local Presentation = require(script.Parent.PresentationConfig)
+local Access = require(script.Parent.PresentationAccess)
 
 local CHORE_ACTIONS = { finish_chore = true, pickup_trash = true }
 
@@ -137,7 +139,8 @@ function Session.start(sandbox: any)
             kind = "state",
             observation = Round.observe(state, session.playerId),
             developer = RunService:IsStudio(),
-            notice = session.notice,
+            notice = if session.busy then "Roommates are thinking…" else session.notice,
+            busy = session.busy == true,
             color = session.color,
             colors = Setup.playerColors,
             best = session.best,
@@ -196,6 +199,9 @@ function Session.start(sandbox: any)
 
     local function clearProps(player: Player)
         local previous = sessions[player]
+        if previous and previous.brain then
+            previous.brain.reset()
+        end
         if previous and previous.clues then
             previous.clues:Destroy()
         end
@@ -210,6 +216,18 @@ function Session.start(sandbox: any)
     end
 
     local function newSession(player: Player, chosenSeed: number?, color: string?)
+        local ownerId = if game.CreatorType == Enum.CreatorType.User then game.CreatorId else nil
+        if
+            not Access.allowed(
+                player.UserId,
+                RunService:IsStudio(),
+                ownerId,
+                Presentation.allowedUserIds
+            )
+        then
+            player:Kick("This is a private presentation. Ask the host for access.")
+            return nil
+        end
         clearProps(player)
         local seed = chosenSeed or (1 + math.floor((os.time() + player.UserId) % 2147483645))
         local picked = if color and Setup.isPlayerColor(color)
@@ -222,7 +240,11 @@ function Session.start(sandbox: any)
         local session = {
             clues = clueFolder,
             brain = BrainService.new({
-                url = Build.brain.url,
+                url = Presentation.brainUrl,
+                secretName = if RunService:IsStudio()
+                        and string.match(Presentation.brainUrl, "^http://127%.0%.0%.1:")
+                    then nil
+                    else Presentation.brainSecretName,
                 maxCalls = Build.brain.maxCalls,
                 deadline = Build.brain.deadline,
                 isEnabled = function()
@@ -235,6 +257,7 @@ function Session.start(sandbox: any)
             best = best[player] or 0,
             -- False until the player actually plays: the colour can still change.
             entered = false,
+            busy = true,
             -- Set once, when this household ends, if it beat the player's best.
             record = nil,
             state = Round.new(Setup.household(picked), seed, Setup.rules),
@@ -247,6 +270,7 @@ function Session.start(sandbox: any)
             sandbox.tint(player, Setup.rgb(picked))
         end
         Flow.speak(Round, Policy, session.state, session.brain)
+        session.busy = false
         changed(session)
         print(
             string.format(
@@ -354,6 +378,25 @@ function Session.start(sandbox: any)
         changed(session)
     end
 
+    -- HTTP yields. Serialize all state-changing requests for a household and
+    -- suspend errands until the operation completes, including on failure.
+    local function operate(session: any, callback: () -> ())
+        if session.busy then
+            return
+        end
+        session.busy = true
+        push(session)
+        local ok, reason = xpcall(callback, debug.traceback)
+        session.busy = false
+        if not ok then
+            warn("[Round] Request failed: " .. tostring(reason))
+            session.notice = "That request could not finish. Please try again."
+        end
+        if sessions[session.player] == session then
+            changed(session)
+        end
+    end
+
     if RunService:IsStudio() then
         local controls = Instance.new("BindableFunction")
         controls.Name = "HousepadCommand"
@@ -365,7 +408,12 @@ function Session.start(sandbox: any)
             if not player then
                 return "No player is connected."
             end
-            command(player, raw)
+            local current = sessions[player]
+            if current then
+                operate(current, function()
+                    command(player, raw)
+                end)
+            end
             local session = sessions[player]
             return {
                 notice = session.notice,
@@ -379,6 +427,13 @@ function Session.start(sandbox: any)
         if not session or type(request) ~= "table" or type(request.kind) ~= "string" then
             return
         end
+        if session.busy then
+            if request.kind == "message" then
+                session.receipt = { requestId = request.requestId, accepted = false }
+            end
+            push(session)
+            return
+        end
         local clock = os.clock()
         if clock - (lastRequest[player] or 0) < 0.1 then
             if request.kind == "message" then
@@ -389,54 +444,56 @@ function Session.start(sandbox: any)
             return
         end
         lastRequest[player] = clock
-        local state = session.state
-        local kind = request.kind
-        if kind == "sync" then
-            push(session)
-        elseif kind == "command" then
-            command(player, request.text)
-        elseif kind == "restart" then
-            if state.status ~= "running" then
-                newSession(player)
-            end
-        elseif kind == "newRound" then
-            -- Deliberate "start a new household" from the home screen. Unlike
-            -- restart, it may discard a running household, because the player
-            -- asked for that from a screen where nothing else is happening.
-            newSession(player, nil, request.color)
-        elseif kind == "color" then
-            -- The home screen's colour picker. It rebuilds the household only
-            -- while the player has not entered it, and never mid-run.
-            if
-                type(request.color) == "string"
-                and Setup.isPlayerColor(request.color)
-                and request.color ~= session.playerId
-                and not session.entered
-                and state.status == "running"
-            then
-                newSession(player, nil, request.color)
-            end
-        elseif kind == "enter" then
-            -- The player opened the household from the home screen: the colour
-            -- is settled from here on.
-            if not session.entered then
-                session.entered = true
+        operate(session, function()
+            local state = session.state
+            local kind = request.kind
+            if kind == "sync" then
                 push(session)
+            elseif kind == "command" then
+                command(player, request.text)
+            elseif kind == "restart" then
+                if state.status ~= "running" then
+                    newSession(player)
+                end
+            elseif kind == "newRound" then
+                -- Deliberate "start a new household" from the home screen. Unlike
+                -- restart, it may discard a running household, because the player
+                -- asked for that from a screen where nothing else is happening.
+                newSession(player, nil, request.color)
+            elseif kind == "color" then
+                -- The home screen's colour picker. It rebuilds the household only
+                -- while the player has not entered it, and never mid-run.
+                if
+                    type(request.color) == "string"
+                    and Setup.isPlayerColor(request.color)
+                    and request.color ~= session.playerId
+                    and not session.entered
+                    and state.status == "running"
+                then
+                    newSession(player, nil, request.color)
+                end
+            elseif kind == "enter" then
+                -- The player opened the household from the home screen: the colour
+                -- is settled from here on.
+                if not session.entered then
+                    session.entered = true
+                    push(session)
+                end
+            elseif state.status ~= "running" then
+                return
+            elseif kind == "action" then
+                tryAction(session, request.action, request.reference)
+            elseif kind == "chore" then
+                local chore = reachableChore(session)
+                if chore then
+                    tryAction(session, chore.action.kind, chore.action.reference)
+                end
+            elseif kind == "message" then
+                trySpeech(session, request)
+            elseif kind == "ready" then
+                advance(session)
             end
-        elseif state.status ~= "running" then
-            return
-        elseif kind == "action" then
-            tryAction(session, request.action, request.reference)
-        elseif kind == "chore" then
-            local chore = reachableChore(session)
-            if chore then
-                tryAction(session, chore.action.kind, chore.action.reference)
-            end
-        elseif kind == "message" then
-            trySpeech(session, request)
-        elseif kind == "ready" then
-            advance(session)
-        end
+        end)
     end)
 
     Players.PlayerAdded:Connect(newSession)

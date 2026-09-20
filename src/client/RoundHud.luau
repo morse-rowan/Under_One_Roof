@@ -75,6 +75,9 @@ function Hud.start()
         })
     end
     actions.ready = function()
+        if payload and payload.busy then
+            return
+        end
         remote:FireServer({ kind = "ready" })
     end
     actions.say = function(channel, speech, attachment)

@@ -60,6 +60,7 @@ function Service.new(options: any?): any
     local calls = 0
     local failures = 0
     local cache: { [string]: any } = {}
+    local generation = 0
 
     local function key(id: string, mode: string): string
         return mode .. "|" .. id
@@ -76,10 +77,16 @@ function Service.new(options: any?): any
         })
         local started = now()
         local ok, result = pcall(function()
+            local headers: any = { ["Content-Type"] = "application/json" }
+            if config.secretName then
+                assert(string.match(config.url, "^https://"), "Hosted gateway requires HTTPS")
+                headers.Authorization = HttpService:GetSecret(config.secretName)
+                    :AddPrefix("Bearer ")
+            end
             return HttpService:RequestAsync({
                 Url = config.url,
                 Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
+                Headers = headers,
                 Body = body,
             })
         end)
@@ -125,7 +132,11 @@ function Service.new(options: any?): any
     -- Ask every roommate who still has a turn at once, then wait for the batch.
     -- Sequential calls would add a second per roommate to a single button press.
     function adapter.prefetch(round: any, state: any, mode: string)
+        generation += 1
+        local batchGeneration = generation
         cache = {}
+        local batchCache = cache
+        local accepting = true
         if not isEnabled() or calls >= config.maxCalls or state.status ~= "running" then
             return
         end
@@ -138,14 +149,22 @@ function Service.new(options: any?): any
                     pending += 1
                     local slot = key(id, mode)
                     task.spawn(function()
-                        local decision, reason = ask(observation, mode, id)
+                        local succeeded, decision, reason = pcall(ask, observation, mode, id)
+                        pending -= 1
+                        -- A timed-out request may finish during another phase or
+                        -- after reset. It must never populate that phase's cache.
+                        if not accepting or generation ~= batchGeneration then
+                            return
+                        end
+                        if not succeeded then
+                            reason, decision = tostring(decision), nil
+                        end
                         if decision then
-                            cache[slot] = decision
+                            batchCache[slot] = decision
                         else
                             failures += 1
                             warn(string.format("[Brain] %s %s fell back (%s)", id, mode, reason))
                         end
-                        pending -= 1
                     end)
                 end
             end
@@ -154,7 +173,9 @@ function Service.new(options: any?): any
         while pending > 0 and now() < limit do
             task.wait(0.05)
         end
-        if pending > 0 then
+        accepting = false
+        if pending > 0 and generation == batchGeneration then
+            failures += pending
             warn(string.format("[Brain] %d roommate(s) missed the %s deadline", pending, mode))
         end
     end
@@ -187,6 +208,7 @@ function Service.new(options: any?): any
     end
 
     function adapter.reset()
+        generation += 1
         calls, failures, cache = 0, 0, {}
     end
 

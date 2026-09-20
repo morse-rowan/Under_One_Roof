@@ -23,7 +23,6 @@ return table.freeze({
     -- box, or flip `enabled` here to have it on from the first morning.
     brain = table.freeze({
         enabled = false,
-        url = "http://127.0.0.1:8787/decide",
         maxCalls = 120,
         deadline = 8,
     }),

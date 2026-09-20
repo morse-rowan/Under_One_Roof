@@ -9,9 +9,9 @@
 -- required by the demo scope. Nothing here performs I/O; `RoundBrainService` does that.
 local Brain = {}
 
-Brain.version = "mvp-prompt-3"
+Brain.version = "mvp-prompt-4"
 Brain.assessmentBytes = 800
-Brain.responseTokens = 160
+Brain.responseTokens = 512
 Brain.historyEvents = 24
 Brain.historyRecaps = 3
 
@@ -54,6 +54,9 @@ local SYSTEM = table.concat({
     "Return JSON only: assessment, choice, message. assessment is a short string; choice is a zero-based index;",
     "message is null or an object with channel (group/private), target (null for group), and speech.",
     "In action mode message must be null. Only communication mode permits dialogue in this scheduler.",
+    "Keep assessment under 25 words and speech under 160 characters. Finish the JSON object.",
+    'Communication example: {"assessment":"Request help","choice":null,"message":{"channel":"group","target":null,"speech":"Can someone help with rent?"}}',
+    'Action example: {"assessment":"Preserve cash","choice":0,"message":null}. Never choose an index in communication mode.',
 }, "\n")
 
 local STOPS = { morning = true, midday = true, night = true }

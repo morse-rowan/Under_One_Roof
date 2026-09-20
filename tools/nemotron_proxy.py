@@ -21,6 +21,8 @@ Roblox. Studio talks to http://127.0.0.1:8787 and never sees the credential.
 
 import argparse
 import getpass
+import hmac
+import ipaddress
 import json
 import os
 import sys
@@ -30,6 +32,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections import deque
 
 # Chosen on measured reliability, not peak speed: over five repeats each on 2026-09-19,
 # Super answered 10/10 dialogue+JSON calls (median 0.73 s / 1.12 s) while Lightning managed
@@ -53,6 +56,8 @@ SYSTEM = (
 
 state = {"calls": 0, "limit": 0, "live": True, "key": "", "model": MODEL}
 lock = threading.Lock()
+admissions = deque()
+inflight = threading.BoundedSemaphore(4)
 
 
 def clip(text):
@@ -238,6 +243,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # Replaced by the explicit one-line summaries below.
 
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(10)
+
+    def authorized(self):
+        token = getattr(self.server, "gateway_token", "")
+        if token and not hmac.compare_digest(
+            self.headers.get("Authorization", "").encode(), ("Bearer " + token).encode()
+        ):
+            self.close_connection = True
+            self.reply(401, {"ok": False, "error": "unauthorized"})
+            return False
+        return True
+
     def reply(self, status, payload):
         raw = json.dumps(payload).encode()
         self.send_response(status)
@@ -247,6 +266,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def do_GET(self):
+        if not self.authorized():
+            return
         if self.route() != "/health":
             return self.reply(404, {"ok": False, "text": "", "error": "unknown path"})
         self.reply(
@@ -265,6 +286,33 @@ class Handler(BaseHTTPRequestHandler):
         return urllib.parse.urlsplit(self.path).path or "/"
 
     def do_POST(self):
+        if not self.authorized():
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0 or length > MAX_DECIDE_BODY:
+            self.close_connection = True
+            return self.reply(413, {"ok": False, "error": "bad body size"})
+        if getattr(self.server, "gateway_token", ""):
+            with lock:
+                now = time.monotonic()
+                while admissions and admissions[0] < now - 60:
+                    admissions.popleft()
+                if len(admissions) >= 30:
+                    self.close_connection = True
+                    return self.reply(429, {"ok": False, "error": "rate limit"})
+                admissions.append(now)
+        if not inflight.acquire(blocking=False):
+            self.close_connection = True
+            return self.reply(429, {"ok": False, "error": "busy"})
+        try:
+            return self.dispatch_post()
+        finally:
+            inflight.release()
+
+    def dispatch_post(self):
         if self.route() == "/decide":
             return self.do_decide()
         if self.route() != "/ask":
@@ -353,6 +401,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(args):
+    host = getattr(args, "host", HOST)
+    token = os.environ.get("ROOMMATE_GATEWAY_TOKEN", "")
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host == "localhost"
+    if not loopback and (len(token) < 32 or args.max_calls <= 0):
+        raise SystemExit("Network hosting requires ROOMMATE_GATEWAY_TOKEN (32+ characters) and a positive --max-calls cap.")
     state["live"] = not args.offline
     state["model"] = args.model
     state["limit"] = args.max_calls
@@ -363,10 +419,11 @@ def serve(args):
         state["key"] = key.strip()
         if not state["key"]:
             raise SystemExit("No key provided; the bridge did not start.")
-    httpd = ThreadingHTTPServer((HOST, args.port), Handler)
+    httpd = ThreadingHTTPServer((host, args.port), Handler)
+    httpd.gateway_token = token
     print(
         "Nemotron bridge on http://%s:%d  mode=%s  model=%s  cap=%s calls  (Ctrl+C to stop)"
-        % (HOST, args.port, "live" if state["live"] else "offline",
+        % (host, args.port, "live" if state["live"] else "offline",
            state["model"] if state["live"] else "stub", args.max_calls or "none"),
         flush=True,
     )
@@ -439,6 +496,7 @@ def main():
     parser.add_argument("--offline", action="store_true", help="deterministic stub, no inference")
     parser.add_argument("--selftest", action="store_true")
     parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument("--host", default=HOST, help="Non-loopback requires authentication; put behind HTTPS")
     parser.add_argument("--max-calls", type=int, default=40, help="0 disables the cap")
     parser.add_argument("--model", default=MODEL, help="any chat model listed for the account")
     args = parser.parse_args()

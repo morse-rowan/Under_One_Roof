@@ -18,6 +18,9 @@ Then select the candidate and optional message. Do not claim that a selected act
 Return JSON only: assessment, choice, message. assessment is a short string; choice is a zero-based index;
 message is null or an object with channel (group/private), target (null for group), and speech.
 In action mode message must be null. Only communication mode permits dialogue in this scheduler.
+Keep assessment under 25 words and speech under 160 characters. Finish the JSON object.
+Communication example: {"assessment":"Request help","choice":null,"message":{"channel":"group","target":null,"speech":"Can someone help with rent?"}}
+Action example: {"assessment":"Preserve cash","choice":0,"message":null}. Never choose an index in communication mode.
 """
 
 
@@ -37,8 +40,8 @@ def packet(observation, strategy="brief", assessment_tokens=128, history_events=
         recap["eventIds"] = [eid for eid in recap["eventIds"] if eid in retained]
     budget = assessment_tokens if strategy == "brief" else 0
     instruction = SYSTEM + (f"\nAim for at most {budget} tokens of assessment." if budget else "\nUse an empty assessment for this direct-choice comparison.")
-    return {"version": "mvp-prompt-3", "strategy": strategy,
-            "assessment_token_target": budget, "response_token_target": 160,
+    return {"version": "mvp-prompt-4", "strategy": strategy,
+            "assessment_token_target": budget, "response_token_target": 512,
             "messages": [{"role": "system", "content": instruction},
                          {"role": "user", "content": json.dumps(obs, ensure_ascii=False)}]}
 

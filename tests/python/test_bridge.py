@@ -7,6 +7,7 @@ import json
 import sys
 import threading
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -156,6 +157,43 @@ class DecideEndpointTests(unittest.TestCase):
         )
         self.assertTrue(answer["ok"])
         self.assertIn("Green hears", answer["text"])
+
+    def test_authentication_precedes_inference_for_all_routes(self):
+        self.httpd.gateway_token = "test-only-token-32-characters-long"
+        before = bridge.state["calls"]
+        try:
+            for path in ("/ask", "/decide", "/health"):
+                for token in (None, "wrong"):
+                    headers = {} if token is None else {"Authorization": "Bearer " + token}
+                    request = urllib.request.Request(self.base + path,
+                        data=None if path == "/health" else b"{}", headers=headers)
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(request, timeout=5)
+                    self.assertEqual(caught.exception.code, 401)
+            self.assertEqual(bridge.state["calls"], before)
+            request = urllib.request.Request(self.base + "/decide",
+                data=json.dumps({"system": "rules", "observation": self.observation()}).encode(),
+                headers={"Authorization": "Bearer " + self.httpd.gateway_token})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertTrue(json.loads(response.read())["ok"])
+            with bridge.lock:
+                bridge.admissions.extend([bridge.time.monotonic()] * 30)
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(request, timeout=5)
+            self.assertEqual(caught.exception.code, 429)
+        finally:
+            self.httpd.gateway_token = ""
+            bridge.admissions.clear()
+
+    def test_network_host_fails_closed_without_token_or_budget(self):
+        args = ArgsStub()
+        args.host = "0.0.0.0"
+        with patch.dict(bridge.os.environ, {"ROOMMATE_GATEWAY_TOKEN": ""}):
+            with self.assertRaises(SystemExit):
+                bridge.serve(args)
+        with patch.dict(bridge.os.environ, {"ROOMMATE_GATEWAY_TOKEN": "x" * 32}):
+            with self.assertRaises(SystemExit):
+                bridge.serve(args)
 
 
 if __name__ == "__main__":

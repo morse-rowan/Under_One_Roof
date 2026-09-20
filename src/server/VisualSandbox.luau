@@ -24,7 +24,9 @@ function Sandbox.start(options: any?)
         Grid,
         { mobileRoommates = mobile }
     )
-    require(script.Parent.NemotronSanity).start(scene)
+    if RunService:IsStudio() then
+        require(script.Parent.NemotronSanity).start(scene)
+    end
     Lighting.ClockTime = 14
     Lighting.Brightness = 2
     Lighting.Ambient = Color3.fromRGB(137, 132, 121)

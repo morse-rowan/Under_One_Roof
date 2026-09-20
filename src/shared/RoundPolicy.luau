@@ -340,7 +340,7 @@ local function speak(observation: any, style: string, note: string?): any?
         return nil
     end
     local owed = observation.rent - observation.rentPaid
-    if owed > 0 and observation.phase == "night" then
+    if owed > 0 and observation.phase == "night" and (observation.rentDueIn or 0) == 0 then
         return {
             channel = "group",
             speech = string.format("Rent is still $%d short and it settles tonight.", owed),
