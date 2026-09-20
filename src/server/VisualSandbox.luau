@@ -14,7 +14,16 @@ function Sandbox.start(options: any?)
     local Grid = require(shared.GridMovement)
     local Scene = require(script.Parent.VisualStudyScene)
     Players.CharacterAutoLoads = false
-    local scene = Scene.build(workspace:WaitForChild("DevStage") :: Model, config, Grid)
+    -- `options.roommates` makes the four standing beans into walking actors. They
+    -- then reserve tiles dynamically like players instead of being permanent walls,
+    -- and a caller drives them through the `roommates` handle returned below.
+    local mobile = (options and options.roommates) == true
+    local scene = Scene.build(
+        workspace:WaitForChild("DevStage") :: Model,
+        config,
+        Grid,
+        { mobileRoommates = mobile }
+    )
     require(script.Parent.NemotronSanity).start(scene)
     Lighting.ClockTime = 14
     Lighting.Brightness = 2
@@ -42,7 +51,12 @@ function Sandbox.start(options: any?)
             end
         end
     end
-    local blocked = Grid.blocked(config)
+    local blocked = Grid.blocked(config, not mobile)
+
+    -- Walking roommates, keyed by bean name. Empty unless `options.roommates`.
+    -- The client identifies an actor by `modelName`, so these carry synthetic
+    -- negative IDs that can never collide with a Roblox UserId.
+    local npcs: { [string]: any } = {}
 
     local function pose(cell: any, angle: number): CFrame
         local x, z = Grid.point(config, cell)
@@ -54,17 +68,35 @@ function Sandbox.start(options: any?)
         actor.model:SetAttribute("Room", Grid.room(config, actor.cell))
         actor.model:SetAttribute("Hopping", actor.target ~= nil)
     end
+    -- Everything that occupies a tile, for `Grid.begin`'s reservation check: a
+    -- player and a roommate must not step onto the same square or swap places.
+    local function occupants(): { any }
+        local all = {}
+        for _, actor in actors do
+            table.insert(all, actor)
+        end
+        for _, actor in npcs do
+            table.insert(all, actor)
+        end
+        return all
+    end
+    local function entry(userId: number, actor: any): any
+        return {
+            userId = userId,
+            modelName = actor.model.Name,
+            cell = actor.cell,
+            target = actor.target,
+            startsAt = actor.landsAt - config.hopSeconds,
+            angle = actor.angle,
+        }
+    end
     local function snapshot(player: Player)
         local entries = {}
         for owner, actor in actors do
-            table.insert(entries, {
-                userId = owner.UserId,
-                modelName = actor.model.Name,
-                cell = actor.cell,
-                target = actor.target,
-                startsAt = actor.landsAt - config.hopSeconds,
-                angle = actor.angle,
-            })
+            table.insert(entries, entry(owner.UserId, actor))
+        end
+        for _, actor in npcs do
+            table.insert(entries, entry(actor.userId, actor))
         end
         remote:FireClient(player, { kind = "snapshot", actors = entries })
     end
@@ -72,9 +104,10 @@ function Sandbox.start(options: any?)
         for offset = 0, config.columns - 1 do
             local candidate = { c = (config.spawn.c + offset) % config.columns, r = config.spawn.r }
             local available = not blocked[Grid.key(candidate)]
-            for other, actor in actors do
+            local mine = actors[owner]
+            for _, actor in occupants() do
                 if
-                    other ~= owner
+                    actor ~= mine
                     and (
                         Grid.key(actor.cell) == Grid.key(candidate)
                         or (actor.target and Grid.key(actor.target) == Grid.key(candidate))
@@ -89,6 +122,39 @@ function Sandbox.start(options: any?)
         end
         return nil
     end
+    -- One broadcast shape for every hop, whoever took it.
+    local function announce(userId: number, actor: any, destination: any, now: number)
+        remote:FireAllClients({
+            kind = "hop",
+            userId = userId,
+            modelName = actor.model.Name,
+            cell = actor.cell,
+            target = destination,
+            startsAt = now,
+            angle = actor.angle,
+        })
+    end
+
+    if mobile then
+        for index, data in config.roommates do
+            local model = scene:FindFirstChild(data.name) :: Model?
+            if model then
+                npcs[data.name] = {
+                    userId = -index,
+                    cell = { c = data.c, r = data.r },
+                    home = { c = data.c, r = data.r },
+                    target = nil,
+                    landsAt = 0,
+                    model = model,
+                    angle = 0,
+                }
+                stamp(npcs[data.name])
+            else
+                warn("[Roommate] No bean named " .. data.name .. "; it cannot walk.")
+            end
+        end
+    end
+
     local function joined(player: Player)
         if actors[player] then
             return
@@ -158,7 +224,7 @@ function Sandbox.start(options: any?)
 
     RunService.Heartbeat:Connect(function()
         local now = workspace:GetServerTimeNow()
-        for _, actor in actors do
+        for _, actor in occupants() do
             if Grid.finish(actor, now) then
                 actor.model:PivotTo(pose(actor.cell, actor.angle))
                 stamp(actor)
@@ -200,7 +266,7 @@ function Sandbox.start(options: any?)
             end
         end
         local destination = if request.kind == "step"
-            then Grid.begin(config, actor, request.direction, now, blocked, actors)
+            then Grid.begin(config, actor, request.direction, now, blocked, occupants())
             else nil
         if not destination then
             remote:FireClient(player, { kind = "rejected" })
@@ -208,15 +274,7 @@ function Sandbox.start(options: any?)
         end
         actor.angle = math.atan2(destination.c - actor.cell.c, destination.r - actor.cell.r)
         stamp(actor)
-        remote:FireAllClients({
-            kind = "hop",
-            userId = player.UserId,
-            modelName = actor.model.Name,
-            cell = actor.cell,
-            target = destination,
-            startsAt = now,
-            angle = actor.angle,
-        })
+        announce(player.UserId, actor, destination, now)
     end)
     local label = (options and options.label) or "visual-sandbox-1"
     ReplicatedStorage:SetAttribute("DevServerReady", label)
@@ -233,6 +291,42 @@ function Sandbox.start(options: any?)
                 paint(actor.model, rgb)
             end
         end,
+        -- Walking roommates. Empty unless `options.roommates` was set; a caller that
+        -- owns the round drives them, because only it knows what the errand is.
+        roommates = {
+            enabled = mobile,
+            -- Where the grid says furniture is, with the roommates left out.
+            blocked = blocked,
+            cellOf = function(name: string): any?
+                local actor = npcs[name]
+                return if actor then actor.target or actor.cell else nil
+            end,
+            homeOf = function(name: string): any?
+                local actor = npcs[name]
+                return if actor then actor.home else nil
+            end,
+            busy = function(name: string): boolean
+                local actor = npcs[name]
+                return actor == nil or actor.target ~= nil
+            end,
+            -- One hop, refused exactly like a player's when the tile is taken.
+            step = function(name: string, direction: any): boolean
+                local actor = npcs[name]
+                if not actor then
+                    return false
+                end
+                local now = workspace:GetServerTimeNow()
+                Grid.finish(actor, now)
+                local destination = Grid.begin(config, actor, direction, now, blocked, occupants())
+                if not destination then
+                    return false
+                end
+                actor.angle = math.atan2(destination.c - actor.cell.c, destination.r - actor.cell.r)
+                stamp(actor)
+                announce(actor.userId, actor, destination, now)
+                return true
+            end,
+        },
         cellOf = function(player: Player): any?
             local actor = actors[player]
             if not actor then

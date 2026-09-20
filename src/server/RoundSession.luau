@@ -20,8 +20,10 @@ local Flow = require(shared:WaitForChild("HousepadFlow"))
 local Send = require(shared:WaitForChild("HousepadSend"))
 local Interactions = require(shared:WaitForChild("RoundInteractions"))
 local Build = require(shared:WaitForChild("BuildInfo"))
+local Routine = require(shared:WaitForChild("RoundRoutine"))
 local Clues = require(script.Parent.RoundClues)
 local BrainService = require(script.Parent.RoundBrainService)
+local Errands = require(script.Parent.RoundErrands)
 
 local CHORE_ACTIONS = { finish_chore = true, pickup_trash = true }
 
@@ -436,9 +438,31 @@ function Session.start(sandbox: any)
         newSession(player)
     end
 
+    -- Roommates walk and carry out their own choices while an action window is open.
+    -- `commit` and `changed` are passed in, so the errands never touch the round or
+    -- the client directly: they ask for the same replay a player's click gets.
+    local errands = Errands.new({
+        sandbox = sandbox,
+        round = Round,
+        policy = Policy,
+        routine = Routine,
+        beans = Setup.beans,
+        commit = function(session: any, id: string, action: any): boolean
+            return commit(session, id, action, nil, true)
+        end,
+        changed = changed,
+    })
+
     -- Movement changes only the interaction hint, never the phase or NPC turn.
     -- Only push when the reachable chore actually changes, preserving typed drafts.
     RunService.Heartbeat:Connect(function()
+        -- There is one apartment and one set of beans, so one household drives them.
+        -- Every player still has their own round; a second player would watch the
+        -- first player's roommates walk. Solo play is the demo's scope.
+        local host = Players:GetPlayers()[1]
+        if host and sessions[host] then
+            errands.update(sessions[host])
+        end
         for _, session in sessions do
             local chore = reachableChore(session)
             local cell = sandbox.cellOf(session.player)

@@ -18,7 +18,11 @@ function Grid.point(config: any, cell: Cell): (number, number)
         (cell.r - (config.rows - 1) / 2) * config.cellSize
 end
 
-function Grid.blocked(config: any): { [string]: boolean }
+-- Furniture, and by default the roommates' standing spots. Pass `false` once the
+-- roommates walk: their cells are then reserved dynamically like any other actor's,
+-- and treating them as permanent walls would trap them where they started.
+-- Everything that scatters litter keeps the default, so issue placement is unchanged.
+function Grid.blocked(config: any, includeRoommates: boolean?): { [string]: boolean }
     local result = {}
     for _, fixture in config.fixtures do
         for c = fixture.c, fixture.c + fixture.w - 1 do
@@ -27,8 +31,10 @@ function Grid.blocked(config: any): { [string]: boolean }
             end
         end
     end
-    for _, roommate in config.roommates do
-        result[Grid.key(roommate)] = true
+    if includeRoommates ~= false then
+        for _, roommate in config.roommates do
+            result[Grid.key(roommate)] = true
+        end
     end
     return result
 end

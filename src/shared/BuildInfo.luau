@@ -11,6 +11,11 @@ return table.freeze({
     -- running. It covers the playable HUD, so it is off while the round is the
     -- default mode; set true to go back to judging the looks.
     menuPreview = false,
+    -- Roommates walk the apartment during the action windows and carry out their
+    -- choice where it happens, instead of standing still until Continue is pressed.
+    -- Deterministic and independent of `brain`. Set false to put the four beans back
+    -- on their fixed tiles if a playtest finds the movement wrong.
+    movingRoommates = true,
     -- Live roommate decisions through the local Nemotron bridge.
     -- Off by default so normal play, Studio sessions and every automated check stay
     -- inference-free: the deterministic policy plays the whole household on its own.

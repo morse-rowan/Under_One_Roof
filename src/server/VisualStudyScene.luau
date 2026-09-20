@@ -193,7 +193,11 @@ local function fixture(parent: Instance, data: any, position: Vector3, palette: 
     end
 end
 
-function Scene.build(stage: Model, config: any, grid: any): Model
+-- `options.mobileRoommates` parents the roommate beans directly under the scene
+-- instead of inside a room model, because a bean that walks between rooms cannot
+-- inherit its visibility from a fixed parent. The client already decides an actor's
+-- transparency from the cell it is standing on.
+function Scene.build(stage: Model, config: any, grid: any, options: any?): Model
     for _, name in { "Apartment", "VisualStudy" } do
         local old = stage:FindFirstChild(name)
         if old then
@@ -278,10 +282,11 @@ function Scene.build(stage: Model, config: any, grid: any): Model
             grid.point(config, { c = data.c + (data.w - 1) / 2, r = data.r + (data.h - 1) / 2 })
         fixture(rooms[grid.room(config, data)], data, Vector3.new(x, config.floorY, z), palette)
     end
+    local mobile = options ~= nil and options.mobileRoommates == true
     for _, data in config.roommates do
         local x, z = grid.point(config, data)
         Scene.bean(
-            rooms[grid.room(config, data)],
+            if mobile then scene else rooms[grid.room(config, data)],
             data.name,
             data.color,
             Vector3.new(x, config.floorY, z),

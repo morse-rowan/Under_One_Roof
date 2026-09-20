@@ -12,6 +12,7 @@ if build.mode == "mvp" then
     local sandbox = require(script.Parent.VisualSandbox).start({
         label = build.version,
         paletteKeys = false,
+        roommates = build.movingRoommates,
     })
     require(script.Parent.RoundSession).start(sandbox)
     return

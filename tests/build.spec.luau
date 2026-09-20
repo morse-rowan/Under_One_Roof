@@ -14,8 +14,14 @@ return function()
     local scripts = place:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
     assert(scripts and scripts:FindFirstChild("Client"), "Client folder missing")
     assert(scripts.Client.Main:IsA("LocalScript"), "Client entry must be a LocalScript")
-    for _, name in { "VisualStudy", "GridMovement" } do
+    for _, name in { "VisualStudy", "GridMovement", "RoundBrain", "RoundRoutine" } do
         assert(shared:FindFirstChild(name) and shared[name]:IsA("ModuleScript"), name .. " missing")
+    end
+    -- The model adapter and the errand driver are server-only on purpose: a client
+    -- must never be able to read the bridge URL or drive a roommate.
+    for _, name in { "RoundBrainService", "RoundErrands" } do
+        assert(server:FindFirstChild(name) and server[name]:IsA("ModuleScript"), name .. " missing")
+        assert(not scripts.Client:FindFirstChild(name), name .. " must not ship to clients")
     end
     assert(server.VisualSandbox:IsA("ModuleScript"), "Visual sandbox server missing")
     assert(server.VisualStudyScene:IsA("ModuleScript"), "Visual scene builder missing")
