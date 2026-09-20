@@ -14,3 +14,4 @@ __pycache__/
 *.pyc
 sourcemap.json
 roblox.yml
+.claude/
