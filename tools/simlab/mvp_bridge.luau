@@ -24,7 +24,8 @@ while true do
         elseif r.op == "begin_recall" then
             accepted, reason = Round.beginRecall(r.state, r.actor, r.revision, r.challengeId)
         elseif r.op == "submit_work" then
-            accepted, reason = Round.submitWork(r.state, r.actor, r.revision, r.challengeId, r.answers)
+            accepted, reason =
+                Round.submitWork(r.state, r.actor, r.revision, r.challengeId, r.answers)
         elseif r.op == "message" then
             accepted, reason =
                 Round.message(r.state, r.actor, r.revision, r.channel, r.target, r.speech)

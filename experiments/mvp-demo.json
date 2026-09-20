@@ -1,0 +1,12 @@
+{
+  "actors": [
+    {"id": "green", "role": "player", "cash": 20, "income": 15, "goal": 40, "expense": 5},
+    {"id": "blue", "role": "npc", "cash": 10, "income": 10, "goal": 25, "expense": 5},
+    {"id": "red", "role": "npc", "cash": 15, "income": 15, "goal": 30, "expense": 5}
+  ],
+  "config": {"days": 3},
+  "policies": {"green": "protect_cash", "blue": "protect_cash", "red": "household_first"},
+  "communication_waves": 2,
+  "work_accuracy": 0.5,
+  "prompt_options": {"strategy": "brief", "assessment_tokens": 128, "history_events": 24, "history_recaps": 3}
+}

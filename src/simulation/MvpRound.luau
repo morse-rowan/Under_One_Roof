@@ -196,7 +196,11 @@ local function openAction(s)
         local kind = if roll(s, 50) then "trash" else "dishes"
         queuePlan(s, kind, creator, s.phase)
     end
-    if s.phase == "action_two" and s.day < s.config.days and roll(s, s.config.partyPercent + extra) then
+    if
+        s.phase == "action_two"
+        and s.day < s.config.days
+        and roll(s, s.config.partyPercent + extra)
+    then
         queuePlan(s, "party", npcs[1 + s.rng % #npcs], "overnight")
     end
 end
@@ -213,11 +217,16 @@ function Round.new(actors: any, seed: number?, overrides: any?): any
     end
     assert(config.days > 0 and config.payment > 0 and config.eviction > 0, "Invalid limits")
     assert(
-        config.workRestedLength > 0 and config.workTiredLength >= config.workRestedLength
-            and config.workTiredLength <= 100 and config.workSymbols >= 2 and config.workSymbols <= 100,
+        config.workRestedLength > 0
+            and config.workTiredLength >= config.workRestedLength
+            and config.workTiredLength <= 100
+            and config.workSymbols >= 2
+            and config.workSymbols <= 100,
         "Invalid work challenge limits"
     )
-    for _, key in { "messPercent", "partyPercent", "leakPercent", "roachPercent", "randomInspectionPercent" } do
+    for _, key in
+        { "messPercent", "partyPercent", "leakPercent", "roachPercent", "randomInspectionPercent" }
+    do
         assert(config[key] <= 100, "Invalid probability")
     end
     assert(config.inspectionCleanliness <= 100, "Invalid cleanliness threshold")
@@ -252,6 +261,7 @@ function Round.new(actors: any, seed: number?, overrides: any?): any
             type(input.id) == "string"
                 and input.id ~= ""
                 and input.id ~= "*"
+                and input.id ~= "system"
                 and not s.actors[input.id],
             "Invalid actor ID"
         )
@@ -273,7 +283,10 @@ function Round.new(actors: any, seed: number?, overrides: any?): any
             players += 1
         end
     end
-    assert(#s.order > 0 and players <= 1, "Expected a household with at most one player")
+    assert(
+        #s.order > 0 and #s.order <= 8 and players <= 1,
+        "Expected up to eight roommates and at most one player"
+    )
     morning(s)
     return s
 end
@@ -433,7 +446,13 @@ end
 
 -- Apply one validated decision atomically. Invalid dialogue must not leave a payment behind.
 -- A nil action is a communication-only turn and consumes no action effort.
-function Round.decide(s: any, id: string, revision: number, action: any?, message: any?): (boolean, string)
+function Round.decide(
+    s: any,
+    id: string,
+    revision: number,
+    action: any?,
+    message: any?
+): (boolean, string)
     if revision ~= s.revision or s.status ~= "running" or not s.actors[id] then
         return false, "stale_or_finished"
     end
@@ -451,7 +470,14 @@ function Round.decide(s: any, id: string, revision: number, action: any?, messag
         if type(message) ~= "table" then
             return false, "invalid_message"
         end
-        local ok, reason = Round.message(draft, id, draft.revision, message.channel, message.target, message.speech)
+        local ok, reason = Round.message(
+            draft,
+            id,
+            draft.revision,
+            message.channel,
+            message.target,
+            message.speech
+        )
         if not ok then
             return false, reason
         end
@@ -533,7 +559,9 @@ end
 local function prepareWork(s)
     for _, id in s.order do
         if s.actors[id].role == "player" then
-            local length = if s.actors[id].tired then s.config.workTiredLength else s.config.workRestedLength
+            local length = if s.actors[id].tired
+                then s.config.workTiredLength
+                else s.config.workRestedLength
             -- Independent stream: changing work difficulty cannot reroll household incidents.
             local rng = (s.initialSeed + s.day * 7919) % 2147483647
             local sequence = {}
@@ -552,15 +580,31 @@ function Round.workView(s: any, id: string): any
         return nil
     end
     return {
-        id = c.id, stage = c.stage, length = #c.sequence, symbols = s.config.workSymbols,
+        id = c.id,
+        stage = c.stage,
+        length = #c.sequence,
+        symbols = s.config.workSymbols,
         sequence = if c.stage == "preview" then U.copy(c.sequence) else nil,
     }
 end
 
-function Round.beginRecall(s: any, id: string, revision: number, challengeId: number): (boolean, string)
+function Round.beginRecall(
+    s: any,
+    id: string,
+    revision: number,
+    challengeId: number
+): (boolean, string)
     local c = s.workChallenge
-    if s.status ~= "running" or s.phase ~= "work" or s.workSubmitted or revision ~= s.revision
-        or not c or c.actor ~= id or c.id ~= challengeId or c.stage ~= "preview" then
+    if
+        s.status ~= "running"
+        or s.phase ~= "work"
+        or s.workSubmitted
+        or revision ~= s.revision
+        or not c
+        or c.actor ~= id
+        or c.id ~= challengeId
+        or c.stage ~= "preview"
+    then
         return false, "invalid_challenge"
     end
     c.stage = "recall"
@@ -568,18 +612,40 @@ function Round.beginRecall(s: any, id: string, revision: number, challengeId: nu
     return true, "accepted"
 end
 
-function Round.submitWork(s: any, id: string, revision: number, challengeId: number, answers: any): (boolean, string)
+function Round.submitWork(
+    s: any,
+    id: string,
+    revision: number,
+    challengeId: number,
+    answers: any
+): (boolean, string)
     local c = s.workChallenge
-    if s.status ~= "running" or s.phase ~= "work" or s.workSubmitted or revision ~= s.revision
-        or not c or c.actor ~= id or c.id ~= challengeId or c.stage ~= "recall" then
+    if
+        s.status ~= "running"
+        or s.phase ~= "work"
+        or s.workSubmitted
+        or revision ~= s.revision
+        or not c
+        or c.actor ~= id
+        or c.id ~= challengeId
+        or c.stage ~= "recall"
+    then
         return false, "invalid_challenge"
     end
     if type(answers) ~= "table" or #answers > #c.sequence then
         return false, "invalid_answers"
     end
     for key, value in answers do
-        if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > #answers
-            or type(value) ~= "number" or value % 1 ~= 0 or value < 1 or value > s.config.workSymbols then
+        if
+            type(key) ~= "number"
+            or key % 1 ~= 0
+            or key < 1
+            or key > #answers
+            or type(value) ~= "number"
+            or value % 1 ~= 0
+            or value < 1
+            or value > s.config.workSymbols
+        then
             return false, "invalid_answers"
         end
     end
@@ -601,7 +667,9 @@ function Round.outcome(s: any, id: string): any
     assert(actor, "Unknown actor")
     local goalMet = actor.cash >= actor.goal and actor.debt == 0
     return {
-        final = s.status ~= "running", survived = s.status == "horizon", goalMet = goalMet,
+        final = s.status ~= "running",
+        survived = s.status == "horizon",
+        goalMet = goalMet,
         success = s.status == "horizon" and goalMet,
     }
 end
@@ -704,9 +772,12 @@ function Round.observe(s: any, id: string): any
         candidates = Round.candidates(s, id),
         rules = U.copy(s.config),
         messagesRemaining = if s.status == "running" and stopPhase(s)
-            then math.max(0, s.config.messages - (s.messageCounts[id] or 0)) else 0,
+            then math.max(0, s.config.messages - (s.messageCounts[id] or 0))
+            else 0,
         work = {
-            difficulty = if s.actors[id].tired then s.config.workTiredLength else s.config.workRestedLength,
+            difficulty = if s.actors[id].tired
+                then s.config.workTiredLength
+                else s.config.workRestedLength,
             bonusCap = s.config.workBonus,
         },
         outcome = Round.outcome(s, id),

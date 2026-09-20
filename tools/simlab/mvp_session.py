@@ -56,11 +56,17 @@ class MvpSession:
             return False
         prompt = packet(obs, **self.prompt_options)
         failure = None
+        rejected_response = None
+        response = None
         try:
             response = policy(copy.deepcopy(prompt))
             command, diagnostic = validate(response, obs)
         except Exception as error:  # A failed adapter is not an intentional strategy.
             failure = type(error).__name__
+            try:
+                rejected_response = json.loads(json.dumps(response, allow_nan=False))
+            except (TypeError, ValueError):
+                rejected_response = {"unserializable_type": type(response).__name__}
             response = {"assessment": "", "choice": None if mode == "communication" else 0, "message": None}
             command, diagnostic = validate(response, obs)
         first_event = len(self.state["events"]) + 1
@@ -72,6 +78,7 @@ class MvpSession:
             "revision": revision, "prompt": prompt, "response": response,
             "action": command["action"], "message": command["message"],
             "private_diagnostic": diagnostic, "adapter_failure": failure,
+            "rejected_response": rejected_response,
             "fallback": failure is not None,
             "eventIds": list(range(first_event, len(self.state["events"]) + 1)),
         })
