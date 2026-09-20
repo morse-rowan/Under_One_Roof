@@ -23,32 +23,48 @@ def build(gateway_url=None, invited=()):
     if any(type(uid) is not int or uid <= 0 for uid in invited):
         raise ValueError("Invited Roblox user IDs must be positive integers")
     out = ROOT / "build" / "presentation"
-    out.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        # Stale artifacts from an earlier run are a demo hazard, not a cache.
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
     live = gateway_url is not None
+    # Override inside a staged copy of the tree rather than beside it. Writing a
+    # sibling child next to the `$path` directory that already supplies the file
+    # left two modules with the same name under one parent, and `require` picks
+    # either one, so a release could silently load the default configuration.
+    staged = out / "src"
+    shutil.copytree(ROOT / "src", staged)
     info = (ROOT / "src/shared/BuildInfo.luau").read_text(encoding="utf-8")
     if live:
         if info.count("enabled = false") != 1:
             raise ValueError("BuildInfo switch changed; inspect the release builder before use")
         info = info.replace("enabled = false", "enabled = true", 1)
-    (out / "BuildInfo.luau").write_text(info, encoding="utf-8")
+    (staged / "shared" / "BuildInfo.luau").write_text(info, encoding="utf-8")
     config = "return {\n    allowedUserIds = {%s},\n    brainUrl = %s,\n    brainSecretName = \"ROOMMATE_GATEWAY_TOKEN\",\n}\n" % (
         ", ".join(map(str, sorted(set(invited)))),
         json.dumps(gateway_url or "http://127.0.0.1:8787/decide"),
     )
-    (out / "PresentationConfig.luau").write_text(config, encoding="utf-8")
+    (staged / "server" / "PresentationConfig.luau").write_text(config, encoding="utf-8")
     project = json.loads((ROOT / "default.project.json").read_text(encoding="utf-8"))
+
+    source_root = (ROOT / "src").resolve()
 
     def absolute_paths(node):
         if isinstance(node, dict):
             for key, value in node.items():
                 if key == "$path":
-                    node[key] = str((ROOT / value).resolve())
+                    original = (ROOT / value).resolve()
+                    # Anything under src/ is served from the staged copy, so the
+                    # overrides above are the only BuildInfo and PresentationConfig
+                    # the compiled place can contain.
+                    if original == source_root or source_root in original.parents:
+                        node[key] = str(staged / original.relative_to(source_root))
+                    else:
+                        node[key] = str(original)
                 else:
                     absolute_paths(value)
     absolute_paths(project)
     tree = project["tree"]
-    tree["ReplicatedStorage"]["Shared"]["BuildInfo"] = {"$path": str(out / "BuildInfo.luau")}
-    tree["ServerScriptService"]["Server"]["PresentationConfig"] = {"$path": str(out / "PresentationConfig.luau")}
     tree["HttpService"] = {"$className": "HttpService", "$properties": {"HttpEnabled": live}}
     project_file = out / "release.project.json"
     project_file.write_text(json.dumps(project, indent=2), encoding="utf-8")
@@ -63,13 +79,24 @@ def build(gateway_url=None, invited=()):
     sources = {}
     for item in document.iter("Item"):
         props = item.find("Properties")
-        if props is not None:
-            name = props.find("string[@name='Name']")
+        if props is None:
+            continue
+        name = props.find("string[@name='Name']")
+        # Rojo writes Source as a plain string element; older places use
+        # ProtectedString. Accept both, because matching neither silently
+        # passed every place through this check.
+        source = props.find("string[@name='Source']")
+        if source is None:
             source = props.find("ProtectedString[@name='Source']")
-            if name is not None and source is not None:
-                sources[name.text] = source.text or ""
-    if sources.get("PresentationConfig") != config or sources.get("BuildInfo") != info:
-        raise RuntimeError("Compiled place does not match the requested private release configuration")
+        if name is not None and source is not None:
+            sources.setdefault(name.text, []).append(source.text or "")
+    for module, expected in (("PresentationConfig", config), ("BuildInfo", info)):
+        found = sources.get(module, [])
+        if len(found) != 1:
+            raise RuntimeError(
+                "Expected exactly one %s in the compiled place, found %d" % (module, len(found)))
+        if found[0] != expected:
+            raise RuntimeError("Compiled place does not match the requested private release configuration")
     gateway = out / "gateway"
     gateway.mkdir(exist_ok=True)
     shutil.copyfile(ROOT / "tools/nemotron_proxy.py", gateway / "nemotron_proxy.py")
