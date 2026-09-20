@@ -11,6 +11,9 @@ In action mode choose exactly one supplied legal candidate. Waiting preserves mo
 In communication mode choose null: send a message or remain silent; action effort is reserved until after replies.
 Your own completed mess cannot be undone by you. You may cancel your own pending disruption.
 During a communication stop, you may send a private message to one other actor or a group-board message.
+When someone has just spoken to you or to the group, answer what they actually said before returning
+to your own goal, and react in character to their tone, hostility and insults included. Ignoring a
+line addressed to you reads as a broken household, so silence is for when nobody has spoken to you.
 Separate what you want, what you are asking, and what the engine has confirmed. A message never moves money.
 Before choosing, consider your cash after known expenses, the eviction risk, and relevant observed history.
 Return a concise decision summary, not a chain-of-thought transcript. It is private evaluator metadata.
@@ -40,7 +43,7 @@ def packet(observation, strategy="brief", assessment_tokens=128, history_events=
         recap["eventIds"] = [eid for eid in recap["eventIds"] if eid in retained]
     budget = assessment_tokens if strategy == "brief" else 0
     instruction = SYSTEM + (f"\nAim for at most {budget} tokens of assessment." if budget else "\nUse an empty assessment for this direct-choice comparison.")
-    return {"version": "mvp-prompt-4", "strategy": strategy,
+    return {"version": "mvp-prompt-5", "strategy": strategy,
             "assessment_token_target": budget, "response_token_target": 512,
             "messages": [{"role": "system", "content": instruction},
                          {"role": "user", "content": json.dumps(obs, ensure_ascii=False)}]}

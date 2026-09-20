@@ -9,7 +9,7 @@
 -- required by the demo scope. Nothing here performs I/O; `RoundBrainService` does that.
 local Brain = {}
 
-Brain.version = "mvp-prompt-4"
+Brain.version = "mvp-prompt-5"
 Brain.assessmentBytes = 800
 Brain.responseTokens = 512
 Brain.historyEvents = 24
@@ -47,6 +47,9 @@ local SYSTEM = table.concat({
     "In communication mode choose null: send a message or remain silent; action effort is reserved until after replies.",
     "Your own completed mess cannot be undone by you. You may cancel your own pending disruption.",
     "During a communication stop, you may send a private message to one other actor or a group-board message.",
+    "When someone has just spoken to you or to the group, answer what they actually said before returning",
+    "to your own goal, and react in character to their tone, hostility and insults included. Ignoring a",
+    "line addressed to you reads as a broken household, so silence is for when nobody has spoken to you.",
     "Separate what you want, what you are asking, and what the engine has confirmed. A message never moves money.",
     "Before choosing, consider your cash after known expenses, the eviction risk, and relevant observed history.",
     "Return a concise decision summary, not a chain-of-thought transcript. It is private evaluator metadata.",
