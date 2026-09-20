@@ -1,4 +1,4 @@
-# Roommate Game
+# Under One Roof
 
 Code workspace for Rowan's SteelHacks project. Project knowledge and planning live in the shared Obsidian folder.
 

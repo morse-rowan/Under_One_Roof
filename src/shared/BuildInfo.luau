@@ -1,7 +1,7 @@
 --!strict
 -- Shared, non-secret setup metadata. Keep game rules in engine-independent modules.
 return table.freeze({
-    name = "Roommate Game",
+    name = "Under One Roof",
     version = "housepad-manual-1",
     -- "mvp"            the locked six-phase round, played in the apartment
     -- "visual-sandbox" movement and palette comparison only
