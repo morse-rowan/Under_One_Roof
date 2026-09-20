@@ -6,6 +6,8 @@ local Text = require(shared:WaitForChild("RoundText"))
 local Guide = require(shared:WaitForChild("RoundGuide"))
 local Kit = require(script.Parent.MenuKit)
 local Tasks = require(script.Parent.HousepadTasks)
+local Composer = require(script.Parent.HousepadComposer)
+local Apartment = require(script.Parent.HousepadApartment)
 local View = {}
 View.size = Vector2.new(1280, 720)
 local C = {
@@ -235,7 +237,7 @@ local function chat(parent: Instance, o: any, view: any, actions: any): any
     local scroll = Kit.scroller(panel, {
         Name = "Conversation",
         Position = UDim2.fromOffset(16, 68),
-        Size = UDim2.fromOffset(595, 280),
+        Size = UDim2.fromOffset(595, 209),
     })
     local rowY = 0
     local messages = Data.messages(o, channel)
@@ -289,49 +291,8 @@ local function chat(parent: Instance, o: any, view: any, actions: any): any
     end
     scroll.AutomaticCanvasSize = Enum.AutomaticSize.None
     scroll.CanvasSize = UDim2.fromOffset(0, rowY)
-    scroll.CanvasPosition = Vector2.new(0, math.max(0, rowY - 280))
-    local available = o.messagesRemaining > 0 and o.status == "running"
-    local composer = Kit.make("TextBox", {
-        Name = "Composer",
-        Position = UDim2.fromOffset(16, 359),
-        Size = UDim2.fromOffset(500, 38),
-        BackgroundColor3 = C.paper,
-        BorderSizePixel = 0,
-        ClearTextOnFocus = false,
-        Text = (view.drafts and view.drafts[channel]) or "",
-        TextColor3 = C.ink,
-        TextSize = 14,
-        Font = Enum.Font.Gotham,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextEditable = available,
-        PlaceholderText = if available
-            then "Message · Enter to send"
-            else "Messages reopen at the next conversation stop",
-        TextTruncate = Enum.TextTruncate.AtEnd,
-    }, panel)
-    Kit.corner(composer, 19)
-    Kit.stroke(composer, C.line, 1)
-    Kit.pad(composer, 0, 14, 0, 14)
-    local function submit()
-        local speech = string.match(composer.Text, "^%s*(.-)%s*$") or ""
-        if available and #speech > 0 then
-            actions.say(channel, speech)
-        end
-    end
-    View.onEnter(composer, submit)
-    local send = button(panel, "Send", "Send", 527, 359, 84, 38, true, submit)
-    send.BackgroundColor3 = if available then C.blue else C.line
-    label(
-        panel,
-        string.format("%d messages left this stop", o.messagesRemaining),
-        20,
-        403,
-        575,
-        15,
-        10,
-        C.muted
-    )
-    return composer
+    scroll.CanvasPosition = Vector2.new(0, math.max(0, rowY - 209))
+    return Composer.render(panel, o, view, actions, View)
 end
 
 local function sidebar(parent: Instance, o: any, view: any, actions: any)
@@ -620,31 +581,7 @@ function View.render(canvas: Instance, payload: any, view: any, actions: any): a
         stat(canvas, metric, i, actions)
     end
     if apartment then
-        local hint = frame(canvas, "ApartmentControls", 42, 540, 760, 72, C.paper)
-        label(
-            hint,
-            if payload.reachable
-                then "[E] " .. payload.reachable.prompt
-                else "WASD / arrows to move · E at a chore · M opens HousePad",
-            16,
-            12,
-            730,
-            24,
-            16,
-            C.ink,
-            true
-        )
-        label(
-            hint,
-            "The day waits until you continue. Messages are available at conversation stops.",
-            16,
-            40,
-            730,
-            19,
-            12,
-            C.muted
-        )
-        button(canvas, "OpenPad", "Open HousePad [M]", 881, 548, 347, 48, true, actions.apartment)
+        Apartment.render(canvas, payload, actions, View)
     else
         sidebar(canvas, o, view, actions)
         details(canvas, o, view, actions)
@@ -654,7 +591,7 @@ function View.render(canvas: Instance, payload: any, view: any, actions: any): a
             work(canvas, o)
         elseif view.channel == "activity" then
             activity(canvas, o)
-        elseif o.phase == "action_one" or o.phase == "action_two" then
+        elseif (o.phase == "action_one" or o.phase == "action_two") and not view.actionChat then
             Tasks.render(canvas, o, actions, View)
         else
             handles.chat = chat(canvas, o, view, actions)
@@ -675,7 +612,9 @@ function View.render(canvas: Instance, payload: any, view: any, actions: any): a
             active
         )
     end
-    button(footer, "Home", "Home [H]", 815, 0, 145, 31, false, actions.home)
+    if actions.home then
+        button(footer, "Home", "Home [H]", 815, 0, 145, 31, false, actions.home)
+    end
     if o.status == "running" then
         button(
             footer,

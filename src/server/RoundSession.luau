@@ -17,6 +17,9 @@ local World = require(shared:WaitForChild("RoundWorld"))
 local Grid = require(shared:WaitForChild("GridMovement"))
 local Props = require(script.Parent.RoundProps)
 local Flow = require(shared:WaitForChild("HousepadFlow"))
+local Send = require(shared:WaitForChild("HousepadSend"))
+local Interactions = require(shared:WaitForChild("RoundInteractions"))
+local Clues = require(script.Parent.RoundClues)
 
 local CHORE_ACTIONS = { finish_chore = true, pickup_trash = true }
 
@@ -54,7 +57,12 @@ function Session.start(sandbox: any)
             end
             if
                 model
-                and (item.resolved or model:GetAttribute("Stage") ~= stage or not model.Parent)
+                and (
+                    item.resolved
+                    or model:GetAttribute("Stage") ~= stage
+                    or model:GetAttribute("VisualAge") ~= math.min(item.age or 0, 4)
+                    or not model.Parent
+                )
             then
                 model:Destroy()
                 model = nil
@@ -94,13 +102,12 @@ function Session.start(sandbox: any)
         if state.status ~= "running" then
             return nil
         end
-        return World.reachable(
-            config,
-            state.items,
-            sandbox.cellOf(session.player),
-            Round.candidates(state, Setup.player),
-            Setup.player
-        )
+        local interactionState = {
+            actor = { id = Setup.player },
+            items = state.items,
+            candidates = Round.candidates(state, Setup.player),
+        }
+        return Interactions.reachable(config, interactionState, sandbox.cellOf(session.player))
     end
 
     local function push(session: any)
@@ -111,6 +118,12 @@ function Session.start(sandbox: any)
             observation = Round.observe(state, Setup.player),
             developer = RunService:IsStudio(),
             notice = session.notice,
+            receipt = session.receipt,
+            targets = Interactions.targets(
+                config,
+                Round.observe(state, Setup.player),
+                sandbox.cellOf(session.player)
+            ),
             manual = true,
             reachable = chore and { reference = chore.action.reference, prompt = chore.prompt },
         })
@@ -118,6 +131,14 @@ function Session.start(sandbox: any)
 
     local function changed(session: any)
         syncProps(session)
+        Clues.sync(
+            session.clues,
+            Interactions.markers(config, Round.observe(session.state, Setup.player)),
+            cellPoint,
+            function(cell)
+                return Grid.room(config, cell)
+            end
+        )
         push(session)
     end
 
@@ -145,6 +166,9 @@ function Session.start(sandbox: any)
 
     local function clearProps(player: Player)
         local previous = sessions[player]
+        if previous and previous.clues then
+            previous.clues:Destroy()
+        end
         for _, model in if previous then previous.props else {} do
             model:Destroy()
         end
@@ -153,7 +177,11 @@ function Session.start(sandbox: any)
     local function newSession(player: Player, chosenSeed: number?)
         clearProps(player)
         local seed = chosenSeed or (1 + math.floor((os.time() + player.UserId) % 2147483645))
+        local clueFolder = Instance.new("Folder")
+        clueFolder.Name = "Clues_" .. player.UserId
+        clueFolder.Parent = sandbox.scene
         local session = {
+            clues = clueFolder,
             player = player,
             state = Round.new(Setup.actors, seed, Setup.rules),
             carrying = {},
@@ -206,27 +234,20 @@ function Session.start(sandbox: any)
             elseif kind == "finish_chore" then
                 session.carrying[candidate.reference] = nil
             end
+            session.notice = nil
             changed(session)
         end
     end
 
     local function trySpeech(session: any, request: any)
         local state = session.state
-        local speech = request.speech
-        if type(speech) ~= "string" then
-            return
-        end
-        speech = string.sub(speech, 1, state.config.speechBytes)
-        local channel = if request.channel == "private" then "private" else "group"
-        local target = if channel == "private" then request.target else nil
-        if channel == "private" and (type(target) ~= "string" or not state.actors[target]) then
-            return
-        end
-        local envelope = { channel = channel, target = target, speech = speech }
-        if commit(session, Setup.player, nil, envelope, true) then
+        local ok, reason = Send.submit(Round, state, Setup.player, request)
+        session.notice = reason
+        session.receipt = { requestId = request.requestId, accepted = ok }
+        if ok then
             Flow.speak(Round, Policy, state)
-            changed(session)
         end
+        changed(session)
     end
 
     local function command(player: Player, raw: any)
@@ -294,6 +315,11 @@ function Session.start(sandbox: any)
         end
         local clock = os.clock()
         if clock - (lastRequest[player] or 0) < 0.1 then
+            if request.kind == "message" then
+                session.notice = "One moment—send again when you're ready."
+                session.receipt = { requestId = request.requestId, accepted = false }
+                push(session)
+            end
             return
         end
         lastRequest[player] = clock
@@ -338,7 +364,9 @@ function Session.start(sandbox: any)
     RunService.Heartbeat:Connect(function()
         for _, session in sessions do
             local chore = reachableChore(session)
-            local key = if chore then tostring(chore.action.reference) .. chore.prompt else ""
+            local cell = sandbox.cellOf(session.player)
+            local key = (if chore then tostring(chore.action.reference) .. chore.prompt else "")
+                .. (if cell then Grid.key(cell) else "")
             if key ~= session.reachableKey then
                 session.reachableKey = key
                 push(session)

@@ -14,6 +14,7 @@ function Hud.start()
     local payload: any = nil
     local view: any = { channel = "group", apartment = false, metric = nil, drafts = {} }
     local handles: any = {}
+    local sendSequence = 0
     local gui = Kit.make("ScreenGui", {
         Name = "RoundHud",
         ResetOnSpawn = false,
@@ -64,11 +65,17 @@ function Hud.start()
     actions.ready = function()
         remote:FireServer({ kind = "ready" })
     end
-    actions.say = function(channel, speech)
-        view.pendingMessage =
-            { channel = channel, speech = speech, eventCount = #payload.observation.events }
+    actions.say = function(channel, speech, attachment)
+        if view.pendingMessage then
+            return
+        end
+        sendSequence += 1
+        view.pendingMessage = { channel = channel, speech = speech, requestId = sendSequence }
         remote:FireServer({
             kind = "message",
+            requestId = sendSequence,
+            revision = payload.observation.revision,
+            attachment = attachment,
             channel = if channel == "group" then "group" else "private",
             target = if channel == "group" then nil else channel,
             speech = speech,
@@ -80,6 +87,7 @@ function Hud.start()
     actions.channel = function(id)
         saveDraft()
         view.channel = id
+        view.actionChat = id ~= "activity"
         redraw()
     end
     actions.metric = function(id)
@@ -115,23 +123,15 @@ function Hud.start()
         end
         saveDraft()
         local pending = view.pendingMessage
-        if pending then
-            for index = pending.eventCount + 1, #message.observation.events do
-                local event = message.observation.events[index]
-                local data = event.data
-                if
-                    event.kind == "message"
-                    and data.actor == message.observation.actor.id
-                    and data.speech == pending.speech
-                    and (
-                        (pending.channel == "group" and data.channel == "group")
-                        or (data.channel == "private" and data.target == pending.channel)
-                    )
-                then
-                    view.drafts[pending.channel] = ""
-                    view.pendingMessage = nil
+        local receipt = message.receipt
+        if pending and receipt and receipt.requestId == pending.requestId then
+            if receipt.accepted then
+                view.drafts[pending.channel] = ""
+                if view.attachments then
+                    view.attachments[pending.channel] = nil
                 end
             end
+            view.pendingMessage = nil
         end
         if
             payload
@@ -141,7 +141,10 @@ function Hud.start()
                 or payload.observation.revision > message.observation.revision
             )
         then
-            view.apartment = false
+            view.apartment = message.observation.phase == "action_one"
+                or message.observation.phase == "action_two"
+            view.actionChat = false
+            view.attachments = {}
         end
         payload = message
         redraw()
