@@ -31,12 +31,12 @@ local function part(
     return block
 end
 
-local function dishes(model: Instance)
-    for index = 1, 3 do
+local function dishes(model: Instance, item: any)
+    for index = 1, 3 + math.min(item.age or 0, 4) do
         local plate = part(
             model,
             "Plate",
-            Vector3.new(0.95, 0.09, 0.95),
+            Vector3.new(0.09, 0.95, 0.95),
             Vector3.new(0, 1.82 + index * 0.1, 0.1 * index - 0.2),
             { 233, 228, 214 }
         )
@@ -83,11 +83,12 @@ local function litter(model: Instance, bagged: boolean)
     )
 end
 
-local function leak(model: Instance)
+local function leak(model: Instance, item: any)
+    local radius = 1.9 + math.min(item.age or 0, 4) * 0.35
     local puddle = part(
         model,
         "Puddle",
-        Vector3.new(1.9, 0.06, 1.9),
+        Vector3.new(0.06, radius, radius),
         Vector3.new(0, 0.06, 1.1),
         { 120, 146, 158 }
     )
@@ -97,14 +98,18 @@ local function leak(model: Instance)
     part(model, "Drip", Vector3.new(0.1, 0.38, 0.1), Vector3.new(0, 1.1, 0.85), { 120, 146, 158 })
 end
 
-local function roaches(model: Instance)
-    for index = 1, 5 do
+local function roaches(model: Instance, item: any)
+    for index = 1, 5 + math.min(item.age or 0, 4) * 2 do
         local angle = index * 1.3
         part(
             model,
             "Roach",
             Vector3.new(0.22, 0.09, 0.14),
-            Vector3.new(math.cos(angle) * 0.7, 0.07, math.sin(angle) * 0.7),
+            Vector3.new(
+                math.cos(angle) * (0.6 + index * 0.06),
+                0.07,
+                math.sin(angle) * (0.6 + index * 0.06)
+            ),
             { 68, 50, 40 }
         )
     end
@@ -119,10 +124,26 @@ function Props.build(parent: Instance, item: any): Model
     model.Parent = parent
     local builder = builders[item.kind]
     if builder then
-        builder(model)
+        builder(model, item)
     else
         litter(model, item.stage ~= "open")
     end
+    -- Unresolved mess grows visibly at phase resolution, never on a timer.
+    -- Bagged trash travels with the player, so its dirt remains part of the sack.
+    if item.kind ~= "leak" and not (item.kind == "trash" and item.stage == "bagged") then
+        for index = 1, math.min(item.age or 0, 4) do
+            local angle = index * 2.4
+            local grime = part(
+                model,
+                "Grime",
+                Vector3.new(0.55 + index * 0.1, 0.035, 0.5),
+                Vector3.new(math.cos(angle) * 0.8, 0.035, math.sin(angle) * 0.8),
+                { 137, 123, 75 }
+            )
+            grime.Transparency = 0.25
+        end
+    end
+    model:SetAttribute("VisualAge", math.min(item.age or 0, 4))
     return model
 end
 
