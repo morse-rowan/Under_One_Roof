@@ -153,7 +153,11 @@ return function()
             end
         end
     end
-    expect(replies == 5, "expected two openers, the player request and two group replies")
+    -- One opener and one reply per roommate, plus the player's own request.
+    expect(
+        replies == 2 * #Setup.npcs + 1,
+        "expected one opener and one group reply per roommate, plus the request"
+    )
 
     local privateLive = Round.new(Setup.actors, 13, Setup.rules)
     Flow.speak(Round, Policy, privateLive)

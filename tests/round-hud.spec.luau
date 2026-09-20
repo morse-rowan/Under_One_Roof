@@ -25,7 +25,9 @@ return function()
     local view = { channel = "group", drafts = {} }
     local fired = {}
     local actions = {}
-    for _, name in { "act", "ready", "say", "restart", "apartment", "command", "channel", "metric" } do
+    for _, name in
+        { "act", "ready", "say", "restart", "apartment", "command", "channel", "metric", "home" }
+    do
         actions[name] = function(value)
             fired[name] = value or true
         end
@@ -90,6 +92,7 @@ return function()
         end
         local nextButton = canvas:FindFirstChild("Next", true)
         expect(nextButton)
+        expect(canvas:FindFirstChild("Home", true), "the pad always offers the home screen")
         clicks[nextButton]()
         expect(fired.ready)
         if state.phase == "morning" then
@@ -102,6 +105,41 @@ return function()
                     "own messages must be on the left"
                 )
                 expect(mine.BackgroundColor3.B > mine.BackgroundColor3.R, "own bubble must be blue")
+                -- Every bubble is identified by its sender's face, and so is every
+                -- stop in the rail, including the board and the log.
+                local conversation = canvas:FindFirstChild("Conversation", true)
+                expect(
+                    conversation:FindFirstChild("Portrait_blue")
+                        and conversation:FindFirstChild("Portrait_green"),
+                    "each message needs its sender's face beside it"
+                )
+                for _, npc in Setup.npcs do
+                    local row = canvas:FindFirstChild("Channel_" .. npc.id, true)
+                    expect(
+                        row:FindFirstChild("Portrait_" .. npc.id),
+                        "the contact row needs that roommate's face: " .. npc.id
+                    )
+                end
+                expect(
+                    canvas:FindFirstChild("Channel_group", true):FindFirstChild("GroupFace"),
+                    "the group board needs a household badge"
+                )
+                expect(
+                    canvas:FindFirstChild("Channel_activity", true):FindFirstChild("ReceiptFace"),
+                    "the log is not a person and gets a receipt"
+                )
+                expect(
+                    canvas:FindFirstChild("Chat", true):FindFirstChild("GroupFace"),
+                    "the open conversation names itself with the same badge"
+                )
+                view.channel = "red"
+                View.render(canvas, payload, view, actions)
+                expect(
+                    canvas:FindFirstChild("Chat", true):FindFirstChild("Portrait_red"),
+                    "a private conversation is headed by that roommate's face"
+                )
+                view.channel = "group"
+                View.render(canvas, payload, view, actions)
             end
             clicks[canvas:FindFirstChild("Channel_red", true)]()
             expect(fired.channel == "red")

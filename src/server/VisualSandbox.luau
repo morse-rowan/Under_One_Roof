@@ -29,6 +29,19 @@ function Sandbox.start(options: any?)
     remote.Parent = ReplicatedStorage
     local actors: { [Player]: any } = {}
     local lastRequest: { [Player]: number } = {}
+    -- The colour the player picked on the home screen, so their bean matches the
+    -- identity the round gives them. Rebuilt beans keep it.
+    local tints: { [Player]: { number } } = {}
+    local defaultTint = { 57, 138, 222 }
+
+    local function paint(model: Model, rgb: { number })
+        local color = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+        for _, part in model:GetDescendants() do
+            if part:IsA("BasePart") and part.Name ~= "Eye" then
+                part.Color = color
+            end
+        end
+    end
     local blocked = Grid.blocked(config)
 
     local function pose(cell: any, angle: number): CFrame
@@ -90,7 +103,7 @@ function Sandbox.start(options: any?)
         local model = Scene.bean(
             workspace.DevStage.VisualStudy,
             player.Name,
-            { 57, 138, 222 },
+            tints[player] or defaultTint,
             pose(cell, 0).Position,
             config.palettes.Warm
         )
@@ -212,6 +225,14 @@ function Sandbox.start(options: any?)
         config = config,
         grid = Grid,
         scene = scene,
+        -- Recolour one player's bean. Presentation only: no rule reads this.
+        tint = function(player: Player, rgb: { number })
+            tints[player] = rgb
+            local actor = actors[player]
+            if actor then
+                paint(actor.model, rgb)
+            end
+        end,
         cellOf = function(player: Player): any?
             local actor = actors[player]
             if not actor then

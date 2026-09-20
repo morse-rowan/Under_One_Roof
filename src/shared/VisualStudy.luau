@@ -52,8 +52,11 @@ return {
         { name = "Sideboard", kind = "sideboard", c = 6, r = 2, w = 1, h = 2 },
         { name = "CoffeeTable", kind = "table", c = 9, r = 2, w = 1, h = 1 },
     },
+    -- One standing bean per roommate colour in `RoundSetup.npcs`, on free cells.
     roommates = {
         { name = "Green", c = 1, r = 1, color = { 85, 166, 121 } },
         { name = "Red", c = 11, r = 2, color = { 223, 102, 88 } },
+        { name = "Amber", c = 4, r = 2, color = { 226, 165, 74 } },
+        { name = "Violet", c = 10, r = 3, color = { 163, 126, 208 } },
     },
 }

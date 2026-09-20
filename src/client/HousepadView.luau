@@ -4,6 +4,7 @@ local shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Data = require(shared:WaitForChild("HousepadData"))
 local Text = require(shared:WaitForChild("RoundText"))
 local Guide = require(shared:WaitForChild("RoundGuide"))
+local Setup = require(shared:WaitForChild("RoundSetup"))
 local Kit = require(script.Parent.MenuKit)
 local Tasks = require(script.Parent.HousepadTasks)
 local View = {}
@@ -157,13 +158,111 @@ local function icon(parent: Instance, kind: string, x: number, y: number, color:
     end
 end
 
-local function portrait(parent: Instance, who: string, x: number, y: number, scale: number?)
-    local colors = { blue = C.blue, green = C.good, red = C.bad }
+-- The same two-eyed bean the person controls in the apartment, so a face in the
+-- rail, above a bubble and in the room all read as one identity. Sizes round to
+-- whole pixels because the badge is drawn small.
+local function faceSize(scale: number?): (number, number)
     local k = scale or 1
-    local body =
-        frame(parent, "Portrait_" .. who, x, y, 27 * k, 32 * k, colors[who] or C.muted, 13 * k)
-    frame(body, "Eye", 7 * k, 11 * k, 4 * k, 6 * k, C.white, 3 * k)
-    frame(body, "EyeRight", 17 * k, 11 * k, 4 * k, 6 * k, C.white, 3 * k)
+    return math.round(27 * k), math.round(32 * k)
+end
+
+local function portrait(parent: Instance, who: string, x: number, y: number, scale: number?): Frame
+    local rgb = Setup.rgb(who)
+    local k = scale or 1
+    local w, h = faceSize(k)
+    local body = frame(
+        parent,
+        "Portrait_" .. who,
+        x,
+        y,
+        w,
+        h,
+        Color3.fromRGB(rgb[1], rgb[2], rgb[3]),
+        math.max(2, math.round(13 * k))
+    )
+    local eyeW, eyeH = math.max(2, math.round(4 * k)), math.max(2, math.round(6 * k))
+    local eyeY = math.round(11 * k)
+    frame(body, "Eye", math.round(7 * k), eyeY, eyeW, eyeH, C.white, math.max(1, math.round(3 * k)))
+    frame(
+        body,
+        "EyeRight",
+        w - math.round(7 * k) - eyeW,
+        eyeY,
+        eyeW,
+        eyeH,
+        C.white,
+        math.max(1, math.round(3 * k))
+    )
+    return body
+end
+
+-- The household board gets the whole cast as one badge.
+local function groupFace(parent: Instance, o: any, x: number, y: number, scale: number?): Frame
+    local w, h = faceSize(scale)
+    local tile = Kit.make("Frame", {
+        Name = "GroupFace",
+        Position = UDim2.fromOffset(x, y),
+        Size = UDim2.fromOffset(w, h),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, parent) :: Frame
+    local small = (scale or 1) * 0.46
+    local sw, sh = faceSize(small)
+    local placed = 0
+    for _, id in o.actorIds do
+        if placed >= 4 then
+            break
+        end
+        portrait(tile, id, placed % 2 * (w - sw), math.floor(placed / 2) * (h - sh), small)
+        placed += 1
+    end
+    return tile
+end
+
+-- The log is not a person, so it carries a receipt instead of a face.
+local function receiptFace(parent: Instance, x: number, y: number, scale: number?): Frame
+    local w, h = faceSize(scale)
+    local sheet = frame(
+        parent,
+        "ReceiptFace",
+        x + math.round(w * 0.08),
+        y,
+        math.round(w * 0.84),
+        h,
+        C.white,
+        4
+    )
+    Kit.stroke(sheet, C.line, 1)
+    for i = 0, 2 do
+        frame(
+            sheet,
+            "Line",
+            4,
+            math.round(h * 0.2) + i * math.round(h * 0.22),
+            math.round(w * 0.5),
+            2,
+            C.muted,
+            1
+        )
+    end
+    return sheet
+end
+
+-- One badge per conversation stop, whoever or whatever that stop is.
+local function channelFace(
+    parent: Instance,
+    o: any,
+    id: string,
+    x: number,
+    y: number,
+    scale: number?
+): Frame
+    if id == "group" then
+        return groupFace(parent, o, x, y, scale)
+    elseif id == "activity" then
+        return receiptFace(parent, x, y, scale)
+    end
+    return portrait(parent, id, x, y, scale)
 end
 
 -- The tablet itself. The home screen draws the same device, so it lives here.
@@ -180,6 +279,7 @@ View.label = label
 View.button = button
 View.icon = icon
 View.portrait = portrait
+View.face = channelFace
 View.shell = shell
 
 local function stat(parent: Instance, metric: any, index: number, actions: any)
@@ -210,11 +310,12 @@ end
 local function chat(parent: Instance, o: any, view: any, actions: any): any
     local panel = frame(parent, "Chat", 240, 170, 627, 430)
     local channel = view.channel or "group"
+    channelFace(panel, o, channel, 20, 13, 1.15)
     label(
         panel,
         if channel == "group" then "The apartment" else Text.name(channel) .. " & you",
-        20,
-        12,
+        62,
+        10,
         450,
         27,
         22,
@@ -224,9 +325,9 @@ local function chat(parent: Instance, o: any, view: any, actions: any): any
     label(
         panel,
         if channel == "group" then "GROUP MESSAGE" else "PRIVATE CONVERSATION",
-        20,
-        41,
-        560,
+        62,
+        40,
+        545,
         16,
         10,
         C.muted,
@@ -251,10 +352,21 @@ local function chat(parent: Instance, o: any, view: any, actions: any): any
             C.muted
         )
     end
+    -- Every bubble is answered by its sender's face on the outer edge of the row,
+    -- so a long conversation stays readable without reading the names.
+    local faceW, faceH = faceSize(0.74)
+    local gap = 8
     for _, entry in messages do
         local width = math.min(426, math.max(120, #entry.text * 7.5 + 26))
         local height = math.max(20, View.measure(entry.text, width - 26)) + 18
-        local x = if entry.mine then 4 else 579 - width
+        local x = if entry.mine then 4 + faceW + gap else 579 - faceW - gap - width
+        portrait(
+            scroll,
+            entry.actor,
+            if entry.mine then 4 else 579 - faceW,
+            rowY + 19 + height - faceH,
+            0.74
+        )
         label(
             scroll,
             Text.name(entry.actor, o.actor.id) .. " · Day " .. entry.day,
@@ -344,45 +456,58 @@ local function sidebar(parent: Instance, o: any, view: any, actions: any)
         end
     end
     table.insert(channels, "activity")
+    -- The list grows with the household, so the rail scrolls rather than spills.
+    local list = Kit.scroller(rail, {
+        Name = "Channels",
+        Position = UDim2.fromOffset(10, 36),
+        Size = UDim2.fromOffset(166, 232),
+    })
+    Kit.column(list, 6)
     for i, id in channels do
-        button(
-            rail,
-            "Channel_" .. id,
+        local active = view.channel == id
+        -- The row carries the badge; the name is a separate label so the face can
+        -- sit beside it instead of behind centred button text.
+        local item = button(list, "Channel_" .. id, "", 0, 0, 160, 40, active, function()
+            actions.channel(id)
+        end)
+        item.LayoutOrder = i
+        channelFace(item, o, id, 8, 7, 0.8)
+        label(
+            item,
             if id == "group"
                 then "Group chat"
                 elseif id == "activity" then "Activity & receipts"
                 else Text.name(id),
-            10,
-            42 + (i - 1) * 46,
-            164,
             38,
-            view.channel == id,
-            function()
-                actions.channel(id)
-            end
+            0,
+            114,
+            40,
+            13,
+            if active then C.white else C.ink,
+            active
         )
     end
-    portrait(rail, o.actor.id, 17, 249)
-    label(rail, "YOUR POCKET", 56, 250, 119, 18, 10, C.muted, true)
-    label(rail, "$" .. o.actor.cash, 56, 271, 119, 28, 25, C.ink, true)
+    portrait(rail, o.actor.id, 17, 281)
+    label(rail, "YOUR POCKET", 56, 282, 119, 18, 10, C.muted, true)
+    label(rail, "$" .. o.actor.cash, 56, 301, 119, 26, 23, C.ink, true)
     label(
         rail,
-        string.format("Reserve goal $%d\nBills owed $%d", o.actor.goal, o.actor.debt),
+        string.format("Reserve goal $%d · bills owed $%d", o.actor.goal, o.actor.debt),
         17,
-        307,
+        331,
         156,
-        45,
-        13,
+        30,
+        11,
         C.muted
     )
-    local goal = frame(rail, "ReserveProgress", 17, 354, 150, 5, C.line, 3)
+    local goal = frame(rail, "ReserveProgress", 17, 362, 150, 5, C.line, 3)
     frame(goal, "Fill", 0, 0, 150 * Guide.summary(o).goalFraction, 5, C.good, 3)
     button(
         rail,
         "Apartment",
         if view.apartment then "Open HousePad [M]" else "Walk around [M]",
         10,
-        374,
+        378,
         164,
         40,
         false,
@@ -512,52 +637,66 @@ local function work(parent: Instance, o: any)
     )
 end
 
-local function result(parent: Instance, o: any, actions: any)
+local function result(parent: Instance, o: any, payload: any, actions: any)
     local panel = frame(parent, "Result", 240, 170, 627, 430)
-    icon(panel, "house", 28, 28, if o.outcome.survived then C.good else C.bad)
+    local days = o.outcome.days
+    local best = math.max(payload.best or 0, days)
+    local beatBest = payload.record == true
+    icon(panel, "house", 28, 24, if o.outcome.survived then C.good else C.bad)
+    label(panel, "YOU LASTED", 28, 72, 300, 16, 11, C.muted, true)
     label(
         panel,
-        if o.outcome.survived then "Home, sweet home." else "Time to move out.",
+        string.format("%d %s", days, if days == 1 then "day" else "days"),
+        26,
+        90,
+        400,
+        62,
+        50,
+        C.ink,
+        true
+    )
+    label(
+        panel,
+        if o.outcome.survived
+            then "The household made it to the end of the run."
+            else "The landlord's patience ran out. Try a different plan and go further.",
         28,
-        93,
+        158,
         570,
         50,
-        32,
-        C.ink,
-        true
-    )
-    label(
-        panel,
-        if o.outcome.success
-            then "You kept the apartment and reached your reserve goal."
-            elseif
-                o.outcome.survived
-            then "The household survived. Your reserve goal is still unfinished."
-            else "The landlord's patience ran out. Start a fresh household and try a different plan.",
-        28,
-        161,
-        570,
-        91,
-        19,
+        18,
         C.muted
     )
+    local record = frame(panel, "Record", 28, 214, 570, 74, C.rail)
+    label(record, "BEST RUN", 18, 12, 200, 16, 11, C.muted, true)
     label(
-        panel,
+        record,
         string.format(
-            "$%d saved / $%d goal · $%d personal debt",
-            o.actor.cash,
-            o.actor.goal,
-            o.actor.debt
+            "%d %s%s",
+            best,
+            if best == 1 then "day" else "days",
+            if beatBest then "  ·  new record" else ""
         ),
-        28,
-        259,
-        570,
-        32,
-        17,
-        C.ink,
+        18,
+        30,
+        340,
+        30,
+        24,
+        if beatBest then C.good else C.ink,
         true
     )
-    button(panel, "Restart", "Start a new household", 28, 319, 290, 48, true, actions.restart)
+    label(
+        record,
+        string.format("$%d saved · $%d owed", o.actor.cash, o.actor.debt),
+        392,
+        30,
+        166,
+        30,
+        14,
+        C.muted
+    )
+    button(panel, "Restart", "Start a new household", 28, 306, 290, 48, true, actions.restart)
+    button(panel, "BackHome", "Home screen [H]", 334, 306, 264, 48, false, actions.home)
 end
 
 local function activity(parent: Instance, o: any)
@@ -599,23 +738,44 @@ function View.render(canvas: Instance, payload: any, view: any, actions: any): a
         shell(canvas)
     end
     local title = frame(canvas, "Header", 42, 64, 366, 91, C.paper)
-    label(title, "HousePad", 18, 7, 200, 32, 27, C.ink, true)
+    label(title, "DAY", 18, 10, 60, 16, 11, C.muted, true)
+    label(title, "Day " .. o.day, 18, 24, 210, 38, 34, C.ink, true)
     label(
         title,
-        string.format(
-            "Day %d of %d · %s",
-            o.day,
-            o.rules.days,
-            Data.labels[table.find(Data.phases, o.phase) or 1]
-        ),
+        if o.rules.days > 0
+            then string.format(
+                "%s · day %d of %d",
+                Data.labels[table.find(Data.phases, o.phase) or 1],
+                o.day,
+                o.rules.days
+            )
+            else Data.labels[table.find(Data.phases, o.phase) or 1] .. " · " .. Data.rentLine(
+                o
+            ),
         18,
-        44,
+        66,
         330,
-        22,
-        15,
+        18,
+        13,
         C.muted
     )
-    label(title, "Your day, at your pace", 18, 69, 320, 15, 10, C.muted)
+    local scoreCard = frame(title, "Score", 236, 12, 114, 60, C.rail)
+    label(scoreCard, "BEST RUN", 12, 7, 96, 14, 10, C.muted, true)
+    label(
+        scoreCard,
+        string.format(
+            "%d %s",
+            payload.best or 0,
+            if (payload.best or 0) == 1 then "day" else "days"
+        ),
+        12,
+        24,
+        96,
+        26,
+        20,
+        C.ink,
+        true
+    )
     for i, metric in Data.metrics(o) do
         stat(canvas, metric, i, actions)
     end
@@ -649,7 +809,7 @@ function View.render(canvas: Instance, payload: any, view: any, actions: any): a
         sidebar(canvas, o, view, actions)
         details(canvas, o, view, actions)
         if o.status ~= "running" then
-            result(canvas, o, actions)
+            result(canvas, o, payload, actions)
         elseif o.phase == "work" then
             work(canvas, o)
         elseif view.channel == "activity" then

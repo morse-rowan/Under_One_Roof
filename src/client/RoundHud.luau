@@ -2,6 +2,7 @@
 -- Live HousePad transport. All choices and metrics come from server state.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local View = require(script.Parent.HousepadView)
+local Home = require(script.Parent.HomeScreen)
 local Kit = require(script.Parent.MenuKit)
 local Hud = {}
 
@@ -12,7 +13,18 @@ function Hud.start()
     local player = Players.LocalPlayer
     local remote = ReplicatedStorage:WaitForChild("RoundLink") :: RemoteEvent
     local payload: any = nil
-    local view: any = { channel = "group", apartment = false, metric = nil, drafts = {} }
+    -- The session opens on the home screen. No phase advances while it is up,
+    -- because the round only moves on an explicit request.
+    local view: any = {
+        channel = "group",
+        apartment = false,
+        metric = nil,
+        drafts = {},
+        home = true,
+        homeTab = "home",
+        visited = false,
+        color = nil,
+    }
     local handles: any = {}
     local gui = Kit.make("ScreenGui", {
         Name = "RoundHud",
@@ -93,6 +105,40 @@ function Hud.start()
         view.apartment = not view.apartment
         redraw()
     end
+    actions.play = function()
+        view.home = false
+        view.visited = true
+        -- Entering settles the colour on the server; nothing else changes.
+        remote:FireServer({ kind = "enter" })
+        redraw()
+    end
+    actions.color = function(id)
+        -- Optimistic: the server rebuilds the day-one household in this colour
+        -- and its next state confirms it.
+        view.color = id
+        remote:FireServer({ kind = "color", color = id })
+        redraw()
+    end
+    actions.home = function()
+        saveDraft()
+        view.home = true
+        view.homeTab = "home"
+        redraw()
+    end
+    actions.homeTab = function(id)
+        view.homeTab = id
+        redraw()
+    end
+    actions.newRound = function()
+        remote:FireServer({ kind = "newRound", color = view.color })
+        view.home = false
+        view.visited = true
+        view.apartment = false
+        view.channel = "group"
+        view.metric = nil
+        view.drafts = {}
+        redraw()
+    end
     actions.command = function(text)
         remote:FireServer({ kind = "command", text = text })
         view.commandDraft = ""
@@ -102,8 +148,11 @@ function Hud.start()
     end
 
     function redraw()
-        handles = View.render(canvas, payload, view, actions)
-        backdrop.Visible = not view.apartment
+        handles = if view.home
+            then Home.render(canvas, payload, view, actions)
+            else View.render(canvas, payload, view, actions)
+        backdrop.Visible = view.home
+            or not view.apartment
             or (payload and payload.observation.status ~= "running")
         player:SetAttribute("HousepadOpen", backdrop.Visible)
         fit()
@@ -144,6 +193,9 @@ function Hud.start()
             view.apartment = false
         end
         payload = message
+        if message.color then
+            view.color = message.color
+        end
         redraw()
     end)
 
@@ -151,7 +203,21 @@ function Hud.start()
         if processed or UserInputService:GetFocusedTextBox() or not payload then
             return
         end
-        if input.KeyCode == Enum.KeyCode.M then
+        if view.home then
+            -- The home screen answers to its own two keys only, so a stray
+            -- gameplay key cannot advance a day from behind it.
+            if input.KeyCode == Enum.KeyCode.H and view.homeTab == "howto" then
+                actions.homeTab("home")
+            elseif input.KeyCode == Enum.KeyCode.T or input.KeyCode == Enum.KeyCode.Return then
+                if payload.observation.status == "running" then
+                    actions.play()
+                else
+                    actions.newRound()
+                end
+            end
+        elseif input.KeyCode == Enum.KeyCode.H then
+            actions.home()
+        elseif input.KeyCode == Enum.KeyCode.M then
             actions.apartment()
         elseif input.KeyCode == Enum.KeyCode.T and payload.observation.status == "running" then
             actions.ready()
@@ -165,7 +231,9 @@ function Hud.start()
     RunService:BindToRenderStep("HousepadLayout", Enum.RenderPriority.Last.Value, fit)
     redraw()
     remote:FireServer({ kind = "sync" })
-    print("[HousePad] Manual days: T continue, M apartment, Y messages. Studio commands: /help")
+    print(
+        "[HousePad] Home screen first: T starts. In play: T continue, M apartment, Y messages, H home."
+    )
 end
 
 return Hud

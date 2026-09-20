@@ -8,7 +8,9 @@ local Policy = {}
 Policy.version = "round-policy-1"
 
 -- Two legible attitudes, so a player can learn who is worth negotiating with.
-Policy.styles = { green = "household", red = "cash" }
+-- Roommates are not written characters: an unlisted colour simply alternates
+-- between the two attitudes by the order it appears in.
+Policy.styles = { green = "household", red = "cash", amber = "household", violet = "cash" }
 
 local function pick(candidates: any, kind: string): any?
     for _, candidate in candidates do

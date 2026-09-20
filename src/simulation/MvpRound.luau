@@ -8,7 +8,14 @@ Round.mechanicsVersion = "mvp-1"
 
 Round.phases = { "morning", "action_one", "work", "midday", "action_two", "night" }
 Round.defaults = {
+    -- `days = 0` runs without a horizon: the household plays until eviction and
+    -- the score is how many days it survived.
     days = 3,
+    -- Nights per rent cycle. 1 settles every night; 3 makes rent a weekly bill
+    -- that contributions accumulate toward across the cycle.
+    rentEvery = 1,
+    -- Recurring scheduled inspection. 0 keeps the single `inspectionDay`.
+    inspectionEvery = 0,
     rent = 30,
     payment = 5,
     cleanup = 5,
@@ -56,6 +63,16 @@ end
 
 local function actionPhase(s)
     return s.phase == "action_one" or s.phase == "action_two"
+end
+
+-- The night a cycle's rent is settled, and how many nights away that is.
+local function rentNight(s, day)
+    return day % s.config.rentEvery == 0
+end
+
+local function rentDueIn(s)
+    local every = s.config.rentEvery
+    return (every - s.day % every) % every
 end
 
 local function stopPhase(s)
@@ -149,7 +166,10 @@ local function checkpoint(s)
 end
 
 local function morning(s)
-    s.rentPaid = 0
+    -- Contributions ride along inside a cycle; only a new cycle starts the bill over.
+    if (s.day - 1) % s.config.rentEvery == 0 then
+        s.rentPaid = 0
+    end
     for _, id in s.order do
         local actor = s.actors[id]
         local charge = actor.expense
@@ -180,7 +200,12 @@ local function morning(s)
         })
     end
     s.lastHost = nil
-    emit(s, "day_started", { rent = s.config.rent, inspectionDay = s.config.inspectionDay })
+    emit(s, "day_started", {
+        rent = s.config.rent,
+        inspectionDay = s.config.inspectionDay,
+        rentDueIn = rentDueIn(s),
+        rentPaid = s.rentPaid,
+    })
     checkpoint(s)
 end
 
@@ -202,7 +227,7 @@ local function openAction(s)
     end
     if
         s.phase == "action_two"
-        and s.day < s.config.days
+        and (s.config.days == 0 or s.day < s.config.days)
         and roll(s, s.config.partyPercent + extra)
     then
         queuePlan(s, "party", npcs[1 + s.rng % #npcs], "overnight")
@@ -219,7 +244,8 @@ function Round.new(actors: any, seed: number?, overrides: any?): any
         )
         config[key] = value
     end
-    assert(config.days > 0 and config.payment > 0 and config.eviction > 0, "Invalid limits")
+    assert(config.days >= 0 and config.payment > 0 and config.eviction > 0, "Invalid limits")
+    assert(config.rentEvery > 0, "Rent must be settled at least once per run of days")
     assert(
         config.workRestedLength > 0
             and config.workTiredLength >= config.workRestedLength
@@ -255,6 +281,8 @@ function Round.new(actors: any, seed: number?, overrides: any?): any
         messageCounts = {},
         heat = 0,
         rentPaid = 0,
+        -- Days the household lived through. This is the score.
+        survived = 0,
         lastCheckpoint = 0,
         status = "running",
         workSubmitted = false,
@@ -520,7 +548,12 @@ local function closeAction(s)
     if roll(s, s.config.roachPercent + math.floor((100 - cleanliness(s)) / 4)) then
         addItem(s, "roaches", "system")
     end
-    local scheduled = s.day == s.config.inspectionDay and s.phase == "action_two"
+    local scheduled = s.phase == "action_two"
+        and (
+            if s.config.inspectionEvery > 0
+                then s.day % s.config.inspectionEvery == 0
+                else s.day == s.config.inspectionDay
+        )
     if scheduled or roll(s, s.config.randomInspectionPercent) then
         local failed = cleanliness(s) < s.config.inspectionCleanliness
         if failed then
@@ -681,6 +714,8 @@ function Round.outcome(s: any, id: string): any
         survived = s.status == "horizon",
         goalMet = goalMet,
         success = s.status == "horizon" and goalMet,
+        -- Days lived through, whether the run ended or is still going.
+        days = s.survived,
     }
 end
 
@@ -696,12 +731,25 @@ function Round.advance(s: any, revision: number): (boolean, string)
         closeAction(s)
     end
     if s.phase == "night" then
-        if s.rentPaid < s.config.rent then
-            s.heat += s.config.unpaidHeat
+        if rentNight(s, s.day) then
+            if s.rentPaid < s.config.rent then
+                s.heat += s.config.unpaidHeat
+            else
+                s.heat = math.max(0, s.heat - s.config.paidCooling)
+            end
+            emit(s, "rent_settled", {
+                due = s.config.rent,
+                paid = s.rentPaid,
+                heat = s.heat,
+                every = s.config.rentEvery,
+            })
         else
-            s.heat = math.max(0, s.heat - s.config.paidCooling)
+            emit(s, "rent_pending", {
+                due = s.config.rent,
+                paid = s.rentPaid,
+                nights = rentDueIn(s),
+            })
         end
-        emit(s, "rent_settled", { due = s.config.rent, paid = s.rentPaid, heat = s.heat })
         for _, plan in s.plans do
             if plan.day == s.day and plan.status == "pending" and plan.due == "overnight" then
                 plan.status = "executed"
@@ -717,7 +765,11 @@ function Round.advance(s: any, revision: number): (boolean, string)
         checkpoint(s)
         return true, "evicted"
     end
-    if s.phase == "night" and s.day >= s.config.days then
+    if s.phase == "night" then
+        -- The day is only counted once the household has come through its night.
+        s.survived = s.day
+    end
+    if s.phase == "night" and s.config.days > 0 and s.day >= s.config.days then
         s.status = "horizon"
         checkpoint(s)
         return true, "horizon"
@@ -776,6 +828,9 @@ function Round.observe(s: any, id: string): any
         heat = s.heat,
         rent = s.config.rent,
         rentPaid = s.rentPaid,
+        rentDueIn = rentDueIn(s),
+        rentNight = rentNight(s, s.day),
+        daysSurvived = s.survived,
         items = U.copy(s.items),
         plans = plans,
         events = events,

@@ -79,7 +79,7 @@ return function()
         expect(probe.actors[id] ~= nil, "bean " .. id .. " has no actor")
         expect(probe.actors[id].role == "npc", "bean " .. id .. " must be an NPC")
     end
-    expect(#probe.order == 3, "expected a three-roommate household")
+    expect(#probe.order == 1 + #Setup.npcs, "the household is the player plus every roommate")
 
     ------------------------------------------------------------------- the world
     local blocked = Grid.blocked(Visual)

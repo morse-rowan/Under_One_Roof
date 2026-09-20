@@ -78,7 +78,18 @@ function Text.line(event: any, viewer: string?): string?
         end
         return string.format("%s → you: %s", who, data.speech)
     elseif kind == "day_started" then
-        return string.format("Day %d. Rent due tonight: $%d.", event.day, data.rent)
+        local left = data.rentDueIn or 0
+        if left == 0 then
+            return string.format("Day %d. Rent due tonight: $%d.", event.day, data.rent)
+        end
+        return string.format(
+            "Day %d. Rent of $%d due in %d %s; $%d in so far.",
+            event.day,
+            data.rent,
+            left,
+            if left == 1 then "night" else "nights",
+            data.rentPaid or 0
+        )
     elseif kind == "expense" then
         local paid = string.format("Bills: $%d due, $%d paid", data.due, data.paid)
         return if data.debt > 0
@@ -137,6 +148,14 @@ function Text.line(event: any, viewer: string?): string?
             data.cleanliness,
             if data.failed then "Failed." else "Passed.",
             data.heat
+        )
+    elseif kind == "rent_pending" then
+        return string.format(
+            "Rent not due yet: $%d of $%d in, %d %s to go.",
+            data.paid,
+            data.due,
+            data.nights,
+            if data.nights == 1 then "night" else "nights"
         )
     elseif kind == "rent_settled" then
         return string.format(

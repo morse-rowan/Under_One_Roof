@@ -99,18 +99,30 @@ function Guide.summary(o: any): any
     return {
         choices = string.format("%d / %d choices left", remaining, o.actionLimit or 0),
         inspection = inspection,
-        objective = string.format(
-            "Finish day %d housed, with $%d saved and no personal debt.",
-            o.rules.days,
-            o.actor.goal
-        ),
+        objective = if o.rules.days > 0
+            then string.format(
+                "Finish day %d housed, with $%d saved and no personal debt.",
+                o.rules.days,
+                o.actor.goal
+            )
+            else string.format(
+                "Stay housed. Every day survived is a point; $%d saved and no debt keeps you safe.",
+                o.actor.goal
+            ),
         goalFraction = if o.actor.goal <= 0
             then 1
             else math.clamp(o.actor.cash / o.actor.goal, 0, 1),
         hint = if remaining == 0
             then "Your choices are used up. Continue when you're ready."
             else "Each chore step, investigation or money choice uses one choice. Chat is separate.",
-        rent = string.format("$%d rent still needed tonight", math.max(0, o.rent - o.rentPaid)),
+        rent = if (o.rentDueIn or 0) == 0
+            then string.format("$%d rent still needed tonight", math.max(0, o.rent - o.rentPaid))
+            else string.format(
+                "$%d rent still needed in %d %s",
+                math.max(0, o.rent - o.rentPaid),
+                o.rentDueIn,
+                if o.rentDueIn == 1 then "night" else "nights"
+            ),
     }
 end
 

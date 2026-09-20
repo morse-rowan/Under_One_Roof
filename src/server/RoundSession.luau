@@ -32,6 +32,8 @@ function Session.start(sandbox: any)
 
     local sessions: { [Player]: any } = {}
     local lastRequest: { [Player]: number } = {}
+    local best: { [Player]: number } = {}
+    local chosenColor: { [Player]: string } = {}
 
     local function cellPoint(cell: any): Vector3
         local x, z = Grid.point(config, cell)
@@ -98,19 +100,33 @@ function Session.start(sandbox: any)
             config,
             state.items,
             sandbox.cellOf(session.player),
-            Round.candidates(state, Setup.player),
-            Setup.player
+            Round.candidates(state, session.playerId),
+            session.playerId
         )
     end
 
     local function push(session: any)
         local state = session.state
+        if state.status ~= "running" then
+            -- Days survived is the score. Kept per player for this server's
+            -- lifetime only: nothing is persisted or published.
+            if session.record == nil then
+                session.record = state.survived > (best[session.player] or 0)
+            end
+            best[session.player] = math.max(best[session.player] or 0, state.survived)
+            session.best = best[session.player]
+        end
         local chore = reachableChore(session)
         remote:FireClient(session.player, {
             kind = "state",
-            observation = Round.observe(state, Setup.player),
+            observation = Round.observe(state, session.playerId),
             developer = RunService:IsStudio(),
             notice = session.notice,
+            color = session.color,
+            colors = Setup.playerColors,
+            best = session.best,
+            record = session.record == true,
+            entered = session.entered,
             manual = true,
             reachable = chore and { reference = chore.action.reference, prompt = chore.prompt },
         })
@@ -150,26 +166,41 @@ function Session.start(sandbox: any)
         end
     end
 
-    local function newSession(player: Player, chosenSeed: number?)
+    local function newSession(player: Player, chosenSeed: number?, color: string?)
         clearProps(player)
         local seed = chosenSeed or (1 + math.floor((os.time() + player.UserId) % 2147483645))
+        local picked = if color and Setup.isPlayerColor(color)
+            then color
+            else chosenColor[player] or Setup.defaultColor
+        chosenColor[player] = picked
         local session = {
             player = player,
-            state = Round.new(Setup.actors, seed, Setup.rules),
+            playerId = picked,
+            color = picked,
+            best = best[player] or 0,
+            -- False until the player actually plays: the colour can still change.
+            entered = false,
+            -- Set once, when this household ends, if it beat the player's best.
+            record = nil,
+            state = Round.new(Setup.household(picked), seed, Setup.rules),
             carrying = {},
             props = {},
             notice = nil,
         }
         sessions[player] = session
+        if sandbox.tint then
+            sandbox.tint(player, Setup.rgb(picked))
+        end
         Flow.speak(Round, Policy, session.state)
         changed(session)
         print(
             string.format(
-                "[Round] %s started %s (seed %d, %d days)",
+                "[Round] %s started %s as %s (seed %d, rent every %d days)",
                 player.Name,
                 Setup.version,
+                picked,
                 seed,
-                session.state.config.days
+                session.state.config.rentEvery
             )
         )
         return session
@@ -179,8 +210,9 @@ function Session.start(sandbox: any)
 
     -- Rebuild the request from the server's own candidate list so a forged amount
     -- or an out-of-date reference can never be applied.
-    local function candidateFor(state: any, kind: any, reference: any): any?
-        for _, candidate in Round.candidates(state, Setup.player) do
+    local function candidateFor(session: any, kind: any, reference: any): any?
+        local state = session.state
+        for _, candidate in Round.candidates(state, session.playerId) do
             if candidate.kind == kind and candidate.reference == reference then
                 return candidate
             end
@@ -189,8 +221,7 @@ function Session.start(sandbox: any)
     end
 
     local function tryAction(session: any, kind: any, reference: any)
-        local state = session.state
-        local candidate = candidateFor(state, kind, reference)
+        local candidate = candidateFor(session, kind, reference)
         if not candidate then
             return
         end
@@ -200,7 +231,7 @@ function Session.start(sandbox: any)
                 return
             end
         end
-        if commit(session, Setup.player, candidate, nil, true) then
+        if commit(session, session.playerId, candidate, nil, true) then
             if kind == "pickup_trash" then
                 session.carrying[candidate.reference] = true
             elseif kind == "finish_chore" then
@@ -223,7 +254,7 @@ function Session.start(sandbox: any)
             return
         end
         local envelope = { channel = channel, target = target, speech = speech }
-        if commit(session, Setup.player, nil, envelope, true) then
+        if commit(session, session.playerId, nil, envelope, true) then
             Flow.speak(Round, Policy, state)
             changed(session)
         end
@@ -250,7 +281,7 @@ function Session.start(sandbox: any)
             session.notice = "The household has finished. Use /reset."
         elseif parsed.kind == "set" then
             session.notice =
-                Flow.setStat(Round, session.state, Setup.player, parsed.stat, parsed.value)
+                Flow.setStat(Round, session.state, session.playerId, parsed.stat, parsed.value)
         elseif parsed.kind == "next" then
             advance(session)
             return
@@ -282,7 +313,7 @@ function Session.start(sandbox: any)
             local session = sessions[player]
             return {
                 notice = session.notice,
-                observation = Round.observe(session.state, Setup.player),
+                observation = Round.observe(session.state, session.playerId),
             }
         end
     end
@@ -306,6 +337,30 @@ function Session.start(sandbox: any)
         elseif kind == "restart" then
             if state.status ~= "running" then
                 newSession(player)
+            end
+        elseif kind == "newRound" then
+            -- Deliberate "start a new household" from the home screen. Unlike
+            -- restart, it may discard a running household, because the player
+            -- asked for that from a screen where nothing else is happening.
+            newSession(player, nil, request.color)
+        elseif kind == "color" then
+            -- The home screen's colour picker. It rebuilds the household only
+            -- while the player has not entered it, and never mid-run.
+            if
+                type(request.color) == "string"
+                and Setup.isPlayerColor(request.color)
+                and request.color ~= session.playerId
+                and not session.entered
+                and state.status == "running"
+            then
+                newSession(player, nil, request.color)
+            end
+        elseif kind == "enter" then
+            -- The player opened the household from the home screen: the colour
+            -- is settled from here on.
+            if not session.entered then
+                session.entered = true
+                push(session)
             end
         elseif state.status ~= "running" then
             return

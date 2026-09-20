@@ -46,6 +46,22 @@ function Data.messages(observation: any, channel: string): { any }
     return messages
 end
 
+-- One short phrase for the rent cycle, used by the header and the meter.
+function Data.rentLine(o: any): string
+    local left = o.rentDueIn or 0
+    if o.rentPaid >= o.rent then
+        return if left == 0 then "rent covered tonight" else "rent already covered"
+    elseif left == 0 then
+        return string.format("rent due tonight: $%d left", o.rent - o.rentPaid)
+    end
+    return string.format(
+        "rent in %d %s: $%d left",
+        left,
+        if left == 1 then "night" else "nights",
+        o.rent - o.rentPaid
+    )
+end
+
 function Data.metrics(o: any): { any }
     local happiness = math.clamp(1 - o.heat / o.rules.eviction, 0, 1)
     return {
@@ -68,15 +84,28 @@ function Data.metrics(o: any): { any }
         },
         {
             id = "rent",
-            title = "Rent tonight",
+            title = if (o.rentDueIn or 0) == 0
+                then "Rent due tonight"
+                else string.format(
+                    "Rent in %d %s",
+                    o.rentDueIn,
+                    if o.rentDueIn == 1 then "night" else "nights"
+                ),
             icon = "coin",
             fraction = if o.rent == 0 then 1 else o.rentPaid / o.rent,
             value = string.format("$%d / $%d", o.rentPaid, o.rent),
             state = if o.rentPaid >= o.rent
                 then "All covered!"
                 else string.format("$%d left to cover", o.rent - o.rentPaid),
-            tone = if o.rentPaid >= o.rent then "good" else "warn",
-            detail = "Shared rent is due after the night conversation. Contributions are final; the next morning starts a new bill.",
+            tone = if o.rentPaid >= o.rent
+                then "good"
+                elseif (o.rentDueIn or 0) == 0 then "bad"
+                else "warn",
+            detail = string.format(
+                "The household pays $%d every %d nights, settled after the last night stop of the cycle. Contributions build up across those nights and are final; the landlord only reacts when the bill closes.",
+                o.rent,
+                o.rules.rentEvery or 1
+            ),
         },
         {
             id = "cleanliness",
