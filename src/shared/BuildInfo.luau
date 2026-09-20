@@ -2,7 +2,7 @@
 -- Shared, non-secret setup metadata. Keep game rules in engine-independent modules.
 return table.freeze({
     name = "Roommate Game",
-    version = "mvp-playable-1",
+    version = "housepad-manual-1",
     -- "mvp"            the locked six-phase round, played in the apartment
     -- "visual-sandbox" movement and palette comparison only
     -- "gameplay"       the earlier chore/UI prototype

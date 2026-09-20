@@ -134,6 +134,7 @@ function Sandbox.start(options: any?)
             state ~= Enum.UserInputState.Begin
             or UserInputService:GetFocusedTextBox()
             or GuiService.MenuIsOpen
+            or player:GetAttribute("HousepadOpen")
         then
             return Enum.ContextActionResult.Sink
         end
@@ -182,6 +183,7 @@ function Sandbox.start(options: any?)
     )
     UserInputService.WindowFocusReleased:Connect(clearInput)
     GuiService.MenuOpened:Connect(clearInput)
+    player:GetAttributeChangedSignal("HousepadOpen"):Connect(clearInput)
 
     RunService:BindToRenderStep("VisualStudy", Enum.RenderPriority.Camera.Value + 1, function()
         local now = workspace:GetServerTimeNow()

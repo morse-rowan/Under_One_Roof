@@ -16,8 +16,8 @@ local Policy = require(shared:WaitForChild("RoundPolicy"))
 local World = require(shared:WaitForChild("RoundWorld"))
 local Grid = require(shared:WaitForChild("GridMovement"))
 local Props = require(script.Parent.RoundProps)
+local Flow = require(shared:WaitForChild("HousepadFlow"))
 
-local STOP_PHASES = { morning = true, midday = true, night = true }
 local CHORE_ACTIONS = { finish_chore = true, pickup_trash = true }
 
 function Session.start(sandbox: any)
@@ -32,10 +32,6 @@ function Session.start(sandbox: any)
 
     local sessions: { [Player]: any } = {}
     local lastRequest: { [Player]: number } = {}
-
-    local function now(): number
-        return workspace:GetServerTimeNow()
-    end
 
     local function cellPoint(cell: any): Vector3
         local x, z = Grid.point(config, cell)
@@ -113,9 +109,9 @@ function Session.start(sandbox: any)
         remote:FireClient(session.player, {
             kind = "state",
             observation = Round.observe(state, Setup.player),
-            startedAt = session.phaseStartedAt,
-            endsAt = session.phaseEndsAt,
-            work = Round.workView(state, Setup.player),
+            developer = RunService:IsStudio(),
+            notice = session.notice,
+            manual = true,
             reachable = chore and { reference = chore.action.reference, prompt = chore.prompt },
         })
     end
@@ -138,110 +134,10 @@ function Session.start(sandbox: any)
         return ok
     end
 
-    local function npcTurn(session: any, speaking: boolean)
-        local state = session.state
-        for _, id in state.order do
-            if state.actors[id].role == "npc" and state.status == "running" then
-                local observation = Round.observe(state, id)
-                local decision = Policy.decide(observation, Policy.styleFor(id), speaking)
-                if speaking then
-                    if decision.message then
-                        commit(session, id, nil, decision.message)
-                    end
-                elseif decision.action then
-                    commit(session, id, decision.action, nil)
-                end
-            end
-        end
-        changed(session)
-    end
-
-    ------------------------------------------------------------------ phase clock
-
-    local advance
-
-    local function beginRecall(session: any)
-        local state = session.state
-        local view = Round.workView(state, Setup.player)
-        if view and view.stage == "preview" then
-            Round.beginRecall(state, Setup.player, state.revision, view.id)
-            changed(session)
-        end
-    end
-
-    -- Running out of time still pays the guaranteed base wage; only the bonus is lost.
-    local function forceSubmit(session: any)
-        local state = session.state
-        local view = Round.workView(state, Setup.player)
-        if view and view.stage == "preview" then
-            beginRecall(session)
-            view = Round.workView(state, Setup.player)
-        end
-        if view and view.stage == "recall" then
-            Round.submitWork(state, Setup.player, state.revision, view.id, {})
-            changed(session)
-        end
-    end
-
-    local function schedule(session: any)
-        local state = session.state
-        local phase = state.phase
-        local duration = Setup.phaseSeconds(phase)
-        local start = now()
-        session.beats = {}
-        session.phaseStartedAt = start
-        session.phaseEndsAt = start + duration
-        local function beat(at: number, fn: (any) -> ())
-            table.insert(session.beats, { at = at, fn = fn })
-        end
-        if phase == "work" then
-            local view = Round.workView(state, Setup.player)
-            local preview = Setup.previewSeconds(if view then view.length else 3)
-            session.phaseEndsAt = start + preview + duration
-            beat(start + preview, beginRecall)
-            beat(session.phaseEndsAt - 0.5, forceSubmit)
-        elseif STOP_PHASES[phase] then
-            for _, fraction in { 0.15, 0.4, 0.62 } do
-                beat(start + duration * fraction, function(s)
-                    npcTurn(s, true)
-                end)
-            end
-            beat(start + duration * 0.82, function(s)
-                npcTurn(s, false)
-            end)
-        else
-            beat(start + duration * Setup.npcCommitAt, function(s)
-                npcTurn(s, false)
-            end)
-        end
-    end
-
-    local function runBeats(session: any, until_: number)
-        table.sort(session.beats, function(a, b)
-            return a.at < b.at
-        end)
-        while #session.beats > 0 and session.beats[1].at <= until_ do
-            local entry = table.remove(session.beats, 1)
-            entry.fn(session)
-        end
-    end
-
-    function advance(session: any)
-        local state = session.state
-        runBeats(session, math.huge)
-        if state.phase == "work" and not state.workSubmitted then
-            forceSubmit(session)
-        end
-        local ok = Round.advance(state, state.revision)
-        if not ok then
-            return
-        end
-        if state.status == "running" then
-            schedule(session)
-        else
-            session.beats = {}
-            session.phaseEndsAt = now()
-        end
+    -- Only explicit requests move the round. The flow has no wall clock.
+    local function advance(session: any)
+        local ok, reason = Flow.advance(Round, Policy, session.state)
+        session.notice = if ok then nil else reason
         changed(session)
     end
 
@@ -254,20 +150,18 @@ function Session.start(sandbox: any)
         end
     end
 
-    local function newSession(player: Player)
+    local function newSession(player: Player, chosenSeed: number?)
         clearProps(player)
-        local seed = 1 + math.floor((os.time() + player.UserId) % 2147483645)
+        local seed = chosenSeed or (1 + math.floor((os.time() + player.UserId) % 2147483645))
         local session = {
             player = player,
             state = Round.new(Setup.actors, seed, Setup.rules),
             carrying = {},
             props = {},
-            beats = {},
-            phaseStartedAt = now(),
-            phaseEndsAt = now(),
+            notice = nil,
         }
         sessions[player] = session
-        schedule(session)
+        Flow.speak(Round, Policy, session.state)
         changed(session)
         print(
             string.format(
@@ -330,26 +224,66 @@ function Session.start(sandbox: any)
         end
         local envelope = { channel = channel, target = target, speech = speech }
         if commit(session, Setup.player, nil, envelope, true) then
+            Flow.speak(Round, Policy, state)
             changed(session)
         end
     end
 
-    local function trySubmit(session: any, answers: any)
-        local state = session.state
-        local view = Round.workView(state, Setup.player)
-        if not view or view.stage ~= "recall" or type(answers) ~= "table" then
+    local function command(player: Player, raw: any)
+        -- Both the remote and server command-bar path are development-only.
+        if not RunService:IsStudio() then
             return
         end
-        local clean = {}
-        for index = 1, math.min(#answers, view.length) do
-            local value = answers[index]
-            if type(value) ~= "number" or value % 1 ~= 0 or value < 1 or value > view.symbols then
-                return
-            end
-            clean[index] = value
+        local session = sessions[player]
+        if not session then
+            return
         end
-        if Round.submitWork(state, Setup.player, state.revision, view.id, clean) then
-            changed(session)
+        local parsed, reason = Flow.parse(raw)
+        if not parsed then
+            session.notice = reason
+        elseif parsed.kind == "help" then
+            session.notice = Flow.help
+        elseif parsed.kind == "reset" then
+            newSession(player, parsed.seed)
+            return
+        elseif session.state.status ~= "running" then
+            session.notice = "The household has finished. Use /reset."
+        elseif parsed.kind == "set" then
+            session.notice =
+                Flow.setStat(Round, session.state, Setup.player, parsed.stat, parsed.value)
+        elseif parsed.kind == "next" then
+            advance(session)
+            return
+        elseif parsed.kind == "day" then
+            local day = session.state.day
+            for _ = 1, 6 do
+                if session.state.status ~= "running" or session.state.day ~= day then
+                    break
+                end
+                Flow.advance(Round, Policy, session.state)
+            end
+            session.notice = "Advanced to the next morning or the household's ending."
+        end
+        changed(session)
+    end
+
+    if RunService:IsStudio() then
+        local controls = Instance.new("BindableFunction")
+        controls.Name = "HousepadCommand"
+        controls.Parent = game:GetService("ServerStorage")
+        controls.OnInvoke = function(raw: any, userId: number?)
+            local player = if userId
+                then Players:GetPlayerByUserId(userId)
+                else Players:GetPlayers()[1]
+            if not player then
+                return "No player is connected."
+            end
+            command(player, raw)
+            local session = sessions[player]
+            return {
+                notice = session.notice,
+                observation = Round.observe(session.state, Setup.player),
+            }
         end
     end
 
@@ -367,6 +301,8 @@ function Session.start(sandbox: any)
         local kind = request.kind
         if kind == "sync" then
             push(session)
+        elseif kind == "command" then
+            command(player, request.text)
         elseif kind == "restart" then
             if state.status ~= "running" then
                 newSession(player)
@@ -382,11 +318,7 @@ function Session.start(sandbox: any)
             end
         elseif kind == "message" then
             trySpeech(session, request)
-        elseif kind == "recall" then
-            beginRecall(session)
-        elseif kind == "submit" then
-            trySubmit(session, request.answers)
-        elseif kind == "ready" and state.phase ~= "work" then
+        elseif kind == "ready" then
             advance(session)
         end
     end)
@@ -401,15 +333,15 @@ function Session.start(sandbox: any)
         newSession(player)
     end
 
-    -- One clock for every session: scheduled beats first, then the phase boundary.
+    -- Movement changes only the interaction hint, never the phase or NPC turn.
+    -- Only push when the reachable chore actually changes, preserving typed drafts.
     RunService.Heartbeat:Connect(function()
-        local stamp = now()
         for _, session in sessions do
-            if session.state.status == "running" then
-                runBeats(session, stamp)
-                if stamp >= session.phaseEndsAt then
-                    advance(session)
-                end
+            local chore = reachableChore(session)
+            local key = if chore then tostring(chore.action.reference) .. chore.prompt else ""
+            if key ~= session.reachableKey then
+                session.reachableKey = key
+                push(session)
             end
         end
     end)

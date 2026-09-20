@@ -35,30 +35,9 @@ Setup.labels = {
     night = "Night stop",
 }
 
--- Wall-clock budget per phase. The player can always end a phase early.
-Setup.seconds = {
-    morning = 40,
-    action_one = 60,
-    work = 70,
-    midday = 40,
-    action_two = 60,
-    night = 55,
-}
-
--- Fraction of an action window that passes before the NPCs commit, so player
--- inspection and cancellation requests land first (contract M09).
-Setup.npcCommitAt = 0.6
--- NPC chat at a stop is staggered across this fraction of the phase.
-Setup.npcChatBy = 0.5
-Setup.workPreviewSeconds = 1.7
-Setup.minimumPreviewSeconds = 4
-
-function Setup.phaseSeconds(phase: string): number
-    return Setup.seconds[phase] or 45
-end
-
-function Setup.previewSeconds(length: number): number
-    return math.max(Setup.minimumPreviewSeconds, length * Setup.workPreviewSeconds)
-end
+-- The live HousePad build advances only on explicit input. Work minigames are
+-- deferred; HousepadFlow pays base wages when the player leaves the work screen.
+Setup.manualPhases = true
+Setup.minigamesEnabled = false
 
 return Setup

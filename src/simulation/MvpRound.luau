@@ -74,7 +74,9 @@ local function cleanliness(s)
             dirt += s.config.messDirt + item.age * s.config.ageDirt
         end
     end
-    return math.clamp(100 - dirt, 0, 100)
+    -- Studio-only command adapter can adjust the starting cleanliness for UI
+    -- testing. Ordinary sessions leave this nil; real messes still add dirt.
+    return math.clamp(100 - dirt + (s.debugCleanlinessOffset or 0), 0, 100)
 end
 
 local function itemById(s, id)

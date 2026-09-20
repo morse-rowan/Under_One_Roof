@@ -1,0 +1,700 @@
+--!strict
+-- HousePad is the live UI. Rendering and client/server transport are separate.
+local shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+local Data = require(shared:WaitForChild("HousepadData"))
+local Text = require(shared:WaitForChild("RoundText"))
+local Kit = require(script.Parent.MenuKit)
+local View = {}
+View.size = Vector2.new(1280, 720)
+local C = {
+    bg = Color3.fromRGB(216, 173, 126),
+    bezel = Color3.fromRGB(60, 53, 48),
+    paper = Color3.fromRGB(255, 250, 239),
+    rail = Color3.fromRGB(241, 234, 220),
+    ink = Color3.fromRGB(48, 46, 43),
+    muted = Color3.fromRGB(112, 108, 99),
+    line = Color3.fromRGB(223, 217, 205),
+    blue = Color3.fromRGB(0, 122, 255),
+    bubble = Color3.fromRGB(232, 231, 228),
+    white = Color3.new(1, 1, 1),
+    good = Color3.fromRGB(66, 132, 94),
+    warn = Color3.fromRGB(171, 112, 31),
+    bad = Color3.fromRGB(192, 71, 64),
+}
+View.background = C.bg
+local CHORES = { finish_chore = true, pickup_trash = true }
+
+function View.connect(button: TextButton, callback: () -> ())
+    button.Activated:Connect(callback)
+end
+
+function View.onEnter(box: TextBox, callback: () -> ())
+    box.FocusLost:Connect(function(enter)
+        if enter then
+            callback()
+        end
+    end)
+end
+
+function View.measure(text: string, width: number): number
+    return game:GetService("TextService")
+        :GetTextSize(text, 15, Enum.Font.Gotham, Vector2.new(width, 10000)).Y
+end
+
+local function frame(
+    parent: Instance,
+    name: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    color: Color3?,
+    radius: number?
+): Frame
+    local result = Kit.make("Frame", {
+        Name = name,
+        Position = UDim2.fromOffset(x, y),
+        Size = UDim2.fromOffset(w, h),
+        BorderSizePixel = 0,
+        BackgroundColor3 = color or C.paper,
+    }, parent)
+    Kit.corner(result, radius or 14)
+    return result
+end
+
+local function label(
+    parent: Instance,
+    text: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    size: number?,
+    color: Color3?,
+    bold: boolean?
+): TextLabel
+    return Kit.make("TextLabel", {
+        Name = "Label",
+        Text = text,
+        Position = UDim2.fromOffset(x, y),
+        Size = UDim2.fromOffset(w, h),
+        BackgroundTransparency = 1,
+        TextSize = size or 14,
+        TextColor3 = color or C.ink,
+        Font = if bold then Enum.Font.GothamBold else Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        TextWrapped = true,
+        RichText = false,
+    }, parent)
+end
+
+local function button(
+    parent: Instance,
+    name: string,
+    text: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    active: boolean,
+    callback: () -> ()
+): TextButton
+    local item = Kit.make("TextButton", {
+        Name = name,
+        Text = text,
+        Position = UDim2.fromOffset(x, y),
+        Size = UDim2.fromOffset(w, h),
+        BackgroundColor3 = if active then C.good else C.rail,
+        BorderSizePixel = 0,
+        TextColor3 = if active then C.white else C.ink,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 14,
+        TextWrapped = true,
+        AutoButtonColor = true,
+    }, parent)
+    Kit.corner(item, 12)
+    View.connect(item, callback)
+    return item
+end
+
+-- Native shapes stay crisp at every scale and require no uploaded image assets.
+local function icon(parent: Instance, kind: string, x: number, y: number, color: Color3)
+    local tile = frame(parent, "Icon_" .. kind, x, y, 38, 38, C.rail, 12)
+    local function shape(name, sx, sy, w, h, rotation)
+        local p = frame(tile, name, sx, sy, w, h, color, 2)
+        p.Rotation = rotation or 0
+        return p
+    end
+    if kind == "house" then
+        shape("RoofLeft", 6, 9, 18, 5, -38)
+        shape("RoofRight", 18, 9, 18, 5, 38)
+        shape("Walls", 10, 15, 21, 17)
+        frame(tile, "Door", 18, 22, 6, 10, C.rail, 1)
+    elseif kind == "coin" then
+        local coin = frame(tile, "Coin", 5, 5, 28, 28, color, 28)
+        local t = label(coin, "$", 0, 0, 28, 28, 21, C.white, true)
+        t.TextXAlignment = Enum.TextXAlignment.Center
+    elseif kind == "sparkle" then
+        shape("Sparkle", 12, 12, 17, 17, 45)
+        shape("SmallSparkle", 5, 5, 7, 7, 45)
+        shape("TinySparkle", 29, 6, 5, 5, 45)
+    elseif kind == "cup" then
+        shape("Cup", 9, 15, 19, 17)
+        local handle = shape("Handle", 25, 18, 9, 10)
+        frame(handle, "Hole", 2, 2, 5, 6, C.rail, 2)
+        shape("Steam", 13, 5, 3, 7, 12)
+        shape("SteamTwo", 22, 5, 3, 7, 12)
+    elseif kind == "sort" then
+        for i = 0, 3 do
+            shape("Key", 6 + i % 2 * 15, 6 + math.floor(i / 2) * 15, 12, 12)
+        end
+    else
+        shape("Parcel", 6, 9, 27, 23)
+        frame(tile, "Tape", 17, 9, 5, 23, C.paper, 0)
+    end
+end
+
+local function portrait(parent: Instance, who: string, x: number, y: number, scale: number?)
+    local colors = { blue = C.blue, green = C.good, red = C.bad }
+    local k = scale or 1
+    local body =
+        frame(parent, "Portrait_" .. who, x, y, 27 * k, 32 * k, colors[who] or C.muted, 13 * k)
+    frame(body, "Eye", 7 * k, 11 * k, 4 * k, 6 * k, C.white, 3 * k)
+    frame(body, "EyeRight", 17 * k, 11 * k, 4 * k, 6 * k, C.white, 3 * k)
+end
+
+-- The tablet itself. The home screen draws the same device, so it lives here.
+local function shell(parent: Instance)
+    frame(parent, "Shadow", 23, 46, 1234, 618, Color3.fromRGB(163, 123, 85), 35)
+    frame(parent, "Bezel", 16, 38, 1248, 618, C.bezel, 35)
+    frame(parent, "Screen", 30, 52, 1220, 590, C.rail, 24)
+end
+
+-- Shared with HomeScreen so both surfaces use one palette and one widget set.
+View.palette = C
+View.frame = frame
+View.label = label
+View.button = button
+View.icon = icon
+View.portrait = portrait
+View.shell = shell
+
+local function stat(parent: Instance, metric: any, index: number, actions: any)
+    local card = button(
+        parent,
+        "Metric_" .. metric.id,
+        "",
+        422 + (index - 1) * 264,
+        64,
+        250,
+        91,
+        false,
+        function()
+            actions.metric(metric.id)
+        end
+    )
+    card.BackgroundColor3 = C.paper
+    icon(card, metric.icon, 11, 13, C[metric.tone])
+    label(card, metric.title, 58, 9, 177, 18, 12, C.muted, true)
+    label(card, metric.value, 58, 29, 177, 24, 21, C.ink, true)
+    label(card, metric.state, 12, 60, 219, 16, 11, C[metric.tone])
+    local track = frame(card, "Track", 12, 79, 226, 5, C.line, 3)
+    local fill =
+        frame(track, "Fill", 0, 0, 226 * math.clamp(metric.fraction, 0, 1), 5, C[metric.tone], 3)
+    fill:SetAttribute("Fraction", math.clamp(metric.fraction, 0, 1))
+end
+
+local function chat(parent: Instance, o: any, view: any, actions: any): any
+    local panel = frame(parent, "Chat", 240, 170, 627, 430)
+    local channel = view.channel or "group"
+    label(
+        panel,
+        if channel == "group" then "The apartment" else Text.name(channel) .. " & you",
+        20,
+        12,
+        450,
+        27,
+        22,
+        C.ink,
+        true
+    )
+    label(
+        panel,
+        if channel == "group" then "GROUP MESSAGE" else "PRIVATE CONVERSATION",
+        20,
+        41,
+        560,
+        16,
+        10,
+        C.muted,
+        true
+    )
+    local scroll = Kit.scroller(panel, {
+        Name = "Conversation",
+        Position = UDim2.fromOffset(16, 68),
+        Size = UDim2.fromOffset(595, 280),
+    })
+    local rowY = 0
+    local messages = Data.messages(o, channel)
+    if #messages == 0 then
+        label(
+            scroll,
+            "A little communication goes a long way.\nStart the conversation below.",
+            50,
+            82,
+            495,
+            75,
+            15,
+            C.muted
+        )
+    end
+    for _, entry in messages do
+        local width = math.min(426, math.max(120, #entry.text * 7.5 + 26))
+        local height = math.max(20, View.measure(entry.text, width - 26)) + 18
+        local x = if entry.mine then 4 else 579 - width
+        label(
+            scroll,
+            Text.name(entry.actor, o.actor.id) .. " · Day " .. entry.day,
+            x + 3,
+            rowY,
+            width - 6,
+            17,
+            10,
+            C.muted
+        )
+        local bubble = frame(
+            scroll,
+            if entry.mine then "MessageMine" else "MessageOther",
+            x,
+            rowY + 19,
+            width,
+            height,
+            if entry.mine then C.blue else C.bubble,
+            17
+        )
+        label(
+            bubble,
+            entry.text,
+            13,
+            8,
+            width - 26,
+            height - 16,
+            15,
+            if entry.mine then C.white else C.ink
+        )
+        rowY += height + 28
+    end
+    scroll.AutomaticCanvasSize = Enum.AutomaticSize.None
+    scroll.CanvasSize = UDim2.fromOffset(0, rowY)
+    scroll.CanvasPosition = Vector2.new(0, math.max(0, rowY - 280))
+    local available = o.messagesRemaining > 0 and o.status == "running"
+    local composer = Kit.make("TextBox", {
+        Name = "Composer",
+        Position = UDim2.fromOffset(16, 359),
+        Size = UDim2.fromOffset(500, 38),
+        BackgroundColor3 = C.paper,
+        BorderSizePixel = 0,
+        ClearTextOnFocus = false,
+        Text = (view.drafts and view.drafts[channel]) or "",
+        TextColor3 = C.ink,
+        TextSize = 14,
+        Font = Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextEditable = available,
+        PlaceholderText = if available
+            then "Message · Enter to send"
+            else "Messages reopen at the next conversation stop",
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, panel)
+    Kit.corner(composer, 19)
+    Kit.stroke(composer, C.line, 1)
+    Kit.pad(composer, 0, 14, 0, 14)
+    local function submit()
+        local speech = string.match(composer.Text, "^%s*(.-)%s*$") or ""
+        if available and #speech > 0 then
+            actions.say(channel, speech)
+        end
+    end
+    View.onEnter(composer, submit)
+    local send = button(panel, "Send", "Send", 527, 359, 84, 38, true, submit)
+    send.BackgroundColor3 = if available then C.blue else C.line
+    label(
+        panel,
+        string.format("%d messages left this stop", o.messagesRemaining),
+        20,
+        403,
+        575,
+        15,
+        10,
+        C.muted
+    )
+    return composer
+end
+
+local function sidebar(parent: Instance, o: any, view: any, actions: any)
+    local rail = frame(parent, "Sidebar", 42, 170, 184, 430, C.rail)
+    label(rail, "MESSAGES", 14, 12, 156, 18, 11, C.muted, true)
+    local channels = { "group" }
+    for _, id in o.actorIds do
+        if id ~= o.actor.id then
+            table.insert(channels, id)
+        end
+    end
+    table.insert(channels, "activity")
+    for i, id in channels do
+        button(
+            rail,
+            "Channel_" .. id,
+            if id == "group"
+                then "Group chat"
+                elseif id == "activity" then "Activity & receipts"
+                else Text.name(id),
+            10,
+            42 + (i - 1) * 46,
+            164,
+            38,
+            view.channel == id,
+            function()
+                actions.channel(id)
+            end
+        )
+    end
+    portrait(rail, o.actor.id, 17, 249)
+    label(rail, "YOUR POCKET", 56, 250, 119, 18, 10, C.muted, true)
+    label(rail, "$" .. o.actor.cash, 56, 271, 119, 28, 25, C.ink, true)
+    label(
+        rail,
+        string.format("Reserve goal $%d\nBills owed $%d", o.actor.goal, o.actor.debt),
+        17,
+        307,
+        156,
+        45,
+        13,
+        C.muted
+    )
+    button(
+        rail,
+        "Apartment",
+        if view.apartment then "Open HousePad [M]" else "Walk around [M]",
+        10,
+        374,
+        164,
+        40,
+        false,
+        actions.apartment
+    )
+end
+
+local function details(parent: Instance, o: any, view: any, actions: any)
+    local rail = frame(parent, "Details", 881, 170, 347, 430, C.paper)
+    local metric
+    for _, candidate in Data.metrics(o) do
+        if candidate.id == view.metric then
+            metric = candidate
+        end
+    end
+    label(
+        rail,
+        if metric then metric.title else "Household notes",
+        16,
+        12,
+        315,
+        25,
+        18,
+        C.ink,
+        true
+    )
+    local notes = Kit.scroller(
+        rail,
+        { Name = "Notes", Position = UDim2.fromOffset(16, 46), Size = UDim2.fromOffset(315, 172) }
+    )
+    Kit.column(notes, 8)
+    local order = 0
+    local function note(text, tone)
+        order += 1
+        local row = label(notes, text, 0, 0, 303, 48, 12, tone or C.muted)
+        row.LayoutOrder = order
+        row.AutomaticSize = Enum.AutomaticSize.Y
+        row.TextYAlignment = Enum.TextYAlignment.Top
+    end
+    if metric then
+        note(metric.detail)
+    end
+    for _, item in o.items do
+        if not item.resolved then
+            note(Text.issue(item, o.actor.id), C.ink)
+        end
+    end
+    for _, plan in o.plans do
+        if plan.status == "pending" then
+            note(
+                string.format(
+                    "%s is planning %s (%s).",
+                    Text.name(plan.actor, o.actor.id),
+                    plan.kind,
+                    plan.due
+                )
+            )
+        end
+    end
+    if order == 0 then
+        note(
+            "No outstanding messes. Use the conversation to work out who can help with tonight's rent."
+        )
+    end
+    label(rail, "YOUR CHOICES", 16, 230, 315, 19, 11, C.muted, true)
+    local choices = Kit.scroller(rail, {
+        Name = "Choices",
+        Position = UDim2.fromOffset(16, 257),
+        Size = UDim2.fromOffset(315, 157),
+    })
+    Kit.column(choices, 7)
+    local index = 0
+    for _, action in o.candidates do
+        if not CHORES[action.kind] then
+            index += 1
+            local item = button(
+                choices,
+                "Choice_" .. index,
+                Text.action(action),
+                0,
+                0,
+                303,
+                39,
+                false,
+                function()
+                    actions.act(action)
+                end
+            )
+            item.LayoutOrder = index
+        end
+    end
+    if index == 0 then
+        label(
+            choices,
+            "Nothing else to choose here. Continue when you're ready.",
+            0,
+            0,
+            303,
+            62,
+            13,
+            C.muted
+        )
+    end
+end
+
+local function work(parent: Instance, o: any)
+    local panel = frame(parent, "Work", 240, 170, 627, 430)
+    label(panel, "Your shift", 22, 16, 580, 33, 26, C.ink, true)
+    label(panel, "Minigames · coming later", 22, 51, 580, 23, 15, C.muted)
+    for i, gameInfo in Data.minigames do
+        local card = frame(panel, "Todo_" .. gameInfo.icon, 20, 88 + (i - 1) * 89, 587, 77, C.rail)
+        icon(card, gameInfo.icon, 13, 18, C.muted)
+        label(card, gameInfo.title, 65, 11, 420, 23, 17, C.ink, true)
+        label(card, gameInfo.detail, 65, 36, 490, 29, 13, C.muted)
+        label(card, "TO DO", 505, 10, 70, 22, 10, C.muted, true)
+    end
+    label(
+        panel,
+        string.format(
+            "Continue to collect base pay ($%d before bills).\nThe recall bonus is paused until minigames are implemented.",
+            math.max(0, o.actor.income + o.actor.modifier)
+        ),
+        22,
+        365,
+        583,
+        48,
+        13,
+        C.muted
+    )
+end
+
+local function result(parent: Instance, o: any, actions: any)
+    local panel = frame(parent, "Result", 240, 170, 627, 430)
+    icon(panel, "house", 28, 28, if o.outcome.survived then C.good else C.bad)
+    label(
+        panel,
+        if o.outcome.survived then "Home, sweet home." else "Time to move out.",
+        28,
+        93,
+        570,
+        50,
+        32,
+        C.ink,
+        true
+    )
+    label(
+        panel,
+        if o.outcome.success
+            then "You kept the apartment and reached your reserve goal."
+            elseif
+                o.outcome.survived
+            then "The household survived. Your reserve goal is still unfinished."
+            else "The landlord's patience ran out. Start a fresh household and try a different plan.",
+        28,
+        161,
+        570,
+        91,
+        19,
+        C.muted
+    )
+    button(panel, "Restart", "Start a new household", 28, 304, 290, 48, true, actions.restart)
+end
+
+local function activity(parent: Instance, o: any)
+    local panel = frame(parent, "Activity", 240, 170, 627, 430)
+    label(panel, "A little time at home", 22, 16, 580, 34, 25, C.ink, true)
+    label(
+        panel,
+        "Walk around to do chores, or use your choices to help from here.",
+        22,
+        55,
+        580,
+        42,
+        15,
+        C.muted
+    )
+    local scroll = Kit.scroller(panel, {
+        Name = "ActivityLog",
+        Position = UDim2.fromOffset(22, 111),
+        Size = UDim2.fromOffset(583, 295),
+    })
+    Kit.column(scroll, 9)
+    local lines = Text.log(o, o.actor.id)
+    for i = #lines, math.max(1, #lines - 16), -1 do
+        local row = label(scroll, lines[i], 0, 0, 567, 40, 14, C.muted)
+        row.LayoutOrder = #lines - i
+        row.AutomaticSize = Enum.AutomaticSize.Y
+    end
+end
+
+function View.render(canvas: Instance, payload: any, view: any, actions: any): any
+    canvas:ClearAllChildren()
+    local handles: any = { scale = Kit.make("UIScale", {}, canvas) }
+    if not payload then
+        return handles
+    end
+    local o = payload.observation
+    local apartment = view.apartment and o.status == "running"
+    if not apartment then
+        shell(canvas)
+    end
+    local title = frame(canvas, "Header", 42, 64, 366, 91, C.paper)
+    label(title, "HousePad", 18, 7, 200, 32, 27, C.ink, true)
+    label(
+        title,
+        string.format(
+            "Day %d of %d · %s",
+            o.day,
+            o.rules.days,
+            Data.labels[table.find(Data.phases, o.phase) or 1]
+        ),
+        18,
+        44,
+        330,
+        22,
+        15,
+        C.muted
+    )
+    label(title, "Your day, at your pace", 18, 69, 320, 15, 10, C.muted)
+    for i, metric in Data.metrics(o) do
+        stat(canvas, metric, i, actions)
+    end
+    if apartment then
+        local hint = frame(canvas, "ApartmentControls", 42, 540, 760, 72, C.paper)
+        label(
+            hint,
+            if payload.reachable
+                then "[E] " .. payload.reachable.prompt
+                else "WASD / arrows to move · E at a chore · M opens HousePad",
+            16,
+            12,
+            730,
+            24,
+            16,
+            C.ink,
+            true
+        )
+        label(
+            hint,
+            "The day waits until you continue. Messages are available at conversation stops.",
+            16,
+            40,
+            730,
+            19,
+            12,
+            C.muted
+        )
+        button(canvas, "OpenPad", "Open HousePad [M]", 881, 548, 347, 48, true, actions.apartment)
+    else
+        sidebar(canvas, o, view, actions)
+        details(canvas, o, view, actions)
+        if o.status ~= "running" then
+            result(canvas, o, actions)
+        elseif o.phase == "work" then
+            work(canvas, o)
+        elseif o.phase == "action_one" or o.phase == "action_two" or view.channel == "activity" then
+            activity(canvas, o)
+        else
+            handles.chat = chat(canvas, o, view, actions)
+        end
+    end
+    local footer = frame(canvas, "Timeline", 42, 610, 1186, 31, C.paper, 12)
+    for i, phase in Data.phases do
+        local active = o.phase == phase
+        label(
+            footer,
+            (if active then "• " else "") .. Data.labels[i],
+            12 + (i - 1) * 133,
+            3,
+            130,
+            24,
+            12,
+            if active then C.good else C.muted,
+            active
+        )
+    end
+    button(footer, "Home", "Home [H]", 815, 0, 145, 31, false, actions.home)
+    if o.status == "running" then
+        button(footer, "Next", "Continue [T]  →", 974, 0, 212, 31, true, actions.ready)
+    end
+    if payload.developer then
+        local box = Kit.make("TextBox", {
+            Name = "Command",
+            Position = UDim2.fromOffset(42, 671),
+            Size = UDim2.fromOffset(580, 30),
+            BackgroundColor3 = C.paper,
+            BorderSizePixel = 0,
+            ClearTextOnFocus = false,
+            Text = view.commandDraft or "",
+            PlaceholderText = "/next · /day · /set landlord 80 · /help",
+            TextSize = 13,
+            TextColor3 = C.ink,
+            Font = Enum.Font.Code,
+            TextXAlignment = Enum.TextXAlignment.Left,
+        }, canvas)
+        Kit.corner(box, 10)
+        Kit.pad(box, 0, 12, 0, 12)
+        View.onEnter(box, function()
+            actions.command(box.Text)
+        end)
+        handles.command = box
+        button(canvas, "RunCommand", "Run", 632, 671, 65, 30, false, function()
+            actions.command(box.Text)
+        end)
+        label(
+            canvas,
+            payload.notice or "Studio controls · /help lists commands",
+            711,
+            665,
+            517,
+            42,
+            11,
+            C.ink
+        )
+    end
+    return handles
+end
+
+return View
