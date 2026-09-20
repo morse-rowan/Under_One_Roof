@@ -2,10 +2,21 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local shared = ReplicatedStorage:WaitForChild("Shared")
-if require(shared:WaitForChild("BuildInfo")).menuPreview then
+local build = require(shared:WaitForChild("BuildInfo"))
+if build.menuPreview then
     require(script.Parent.MenuPreview).start()
 end
-if require(shared:WaitForChild("BuildInfo")).mode == "visual-sandbox" then
+if build.mode == "mvp" then
+    -- The apartment and its grid stay exactly as the visual study left them; the
+    -- round is layered on top and owns every rule.
+    local sandbox = require(script.Parent.VisualSandbox).start({
+        label = build.version,
+        paletteKeys = false,
+    })
+    require(script.Parent.RoundSession).start(sandbox)
+    return
+end
+if build.mode == "visual-sandbox" then
     require(script.Parent.VisualSandbox).start()
     return
 end

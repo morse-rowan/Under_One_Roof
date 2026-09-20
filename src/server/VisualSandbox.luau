@@ -1,7 +1,10 @@
 --!strict
 local Sandbox = {}
 
-function Sandbox.start()
+-- `options.paletteKeys = false` frees the number keys for a mode that needs them.
+-- The returned handle lets a gameplay module ask where a player is standing
+-- without ever reaching into this module's internals.
+function Sandbox.start(options: any?)
     local Players = game:GetService("Players")
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local RunService = game:GetService("RunService")
@@ -202,8 +205,23 @@ function Sandbox.start()
             angle = actor.angle,
         })
     end)
-    ReplicatedStorage:SetAttribute("DevServerReady", "visual-sandbox-1")
-    print("[Roommate] Server ready (visual-sandbox-1): visual movement trial; gameplay disabled")
+    local label = (options and options.label) or "visual-sandbox-1"
+    ReplicatedStorage:SetAttribute("DevServerReady", label)
+    print(string.format("[Roommate] Server ready (%s): grid movement online", label))
+    return {
+        config = config,
+        grid = Grid,
+        scene = scene,
+        cellOf = function(player: Player): any?
+            local actor = actors[player]
+            if not actor then
+                return nil
+            end
+            -- Mid-hop counts as already arrived: the chore you jumped toward is
+            -- the one you meant, and the round's own budget still gates it.
+            return actor.target or actor.cell
+        end,
+    }
 end
 
 return Sandbox

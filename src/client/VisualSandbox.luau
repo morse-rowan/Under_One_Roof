@@ -1,7 +1,9 @@
 --!strict
 local Sandbox = {}
 
-function Sandbox.start()
+-- `options.paletteKeys = false` leaves the number keys unbound so a gameplay HUD
+-- can claim them; the palette comparison only belongs to the visual study.
+function Sandbox.start(options: any?)
     local Players = game:GetService("Players")
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local RunService = game:GetService("RunService")
@@ -32,6 +34,7 @@ function Sandbox.start()
             task.wait(0.3)
         end
     end)
+    local paletteKeys = not (options and options.paletteKeys == false)
     local actors: { [number]: any } = {}
     local held: { Enum.KeyCode } = {}
     local pending = false
@@ -140,7 +143,7 @@ function Sandbox.start()
                 step(keyDirections[key])
                 nextRepeat = os.clock() + config.holdDelay
             end
-        elseif key == Enum.KeyCode.One or key == Enum.KeyCode.Two then
+        elseif paletteKeys and (key == Enum.KeyCode.One or key == Enum.KeyCode.Two) then
             paletteName = if key == Enum.KeyCode.One then "Warm" else "LightWarm"
             scene:SetAttribute("PreviewPalette", paletteName)
             refreshScene()
@@ -154,11 +157,7 @@ function Sandbox.start()
         end
         return Enum.ContextActionResult.Sink
     end
-    ContextActionService:BindActionAtPriority(
-        "VisualStudyKeys",
-        input,
-        false,
-        3000,
+    local bound = {
         Enum.KeyCode.W,
         Enum.KeyCode.A,
         Enum.KeyCode.S,
@@ -167,10 +166,19 @@ function Sandbox.start()
         Enum.KeyCode.Left,
         Enum.KeyCode.Down,
         Enum.KeyCode.Right,
-        Enum.KeyCode.One,
-        Enum.KeyCode.Two,
         Enum.KeyCode.R,
-        Enum.KeyCode.Space
+    }
+    if paletteKeys then
+        table.insert(bound, Enum.KeyCode.One)
+        table.insert(bound, Enum.KeyCode.Two)
+        table.insert(bound, Enum.KeyCode.Space)
+    end
+    ContextActionService:BindActionAtPriority(
+        "VisualStudyKeys",
+        input,
+        false,
+        3000,
+        table.unpack(bound)
     )
     UserInputService.WindowFocusReleased:Connect(clearInput)
     GuiService.MenuOpened:Connect(clearInput)
@@ -233,7 +241,9 @@ function Sandbox.start()
     scene:SetAttribute("PreviewPalette", paletteName)
     remote:FireServer({ kind = "sync" })
     print(
-        "[Roommate] Client ready (visual-sandbox-1): WASD/arrows hop; 1 warm; 2 lighter warm; R reset"
+        if paletteKeys
+            then "[Roommate] Client ready (visual-sandbox-1): WASD/arrows hop; 1 warm; 2 lighter warm; R reset"
+            else "[Roommate] Client ready: WASD/arrows hop; R reset"
     )
 end
 

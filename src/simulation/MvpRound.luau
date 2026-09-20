@@ -1,6 +1,8 @@
 --!strict
--- MVP mechanics v1, intentionally outside Rojo mappings. Numeric defaults remain tunable.
-local U = require("../shared/LabUtil")
+-- MVP mechanics v1. Numeric defaults remain tunable.
+-- The file stays here so Lune tests and the Python bridge keep their paths; Rojo maps it
+-- next to LabUtil as `ReplicatedStorage.Shared.MvpRound`, so `script.Parent` resolves there.
+local U = require(if script then script.Parent.LabUtil else "../shared/LabUtil")
 local Round = {}
 Round.mechanicsVersion = "mvp-1"
 

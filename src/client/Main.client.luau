@@ -12,6 +12,13 @@ if buildInfo.menuPreview then
         require(script.Parent.MenuPreview).start()
     end)
 end
+if buildInfo.mode == "mvp" then
+    task.spawn(function()
+        require(script.Parent.RoundHud).start()
+    end)
+    require(script.Parent.VisualSandbox).start({ paletteKeys = false })
+    return
+end
 if buildInfo.mode == "visual-sandbox" then
     require(script.Parent.VisualSandbox).start()
     return
