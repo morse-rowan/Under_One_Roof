@@ -19,12 +19,17 @@ local Props = require(script.Parent.RoundProps)
 local Flow = require(shared:WaitForChild("HousepadFlow"))
 local Send = require(shared:WaitForChild("HousepadSend"))
 local Interactions = require(shared:WaitForChild("RoundInteractions"))
+local Build = require(shared:WaitForChild("BuildInfo"))
 local Clues = require(script.Parent.RoundClues)
+local BrainService = require(script.Parent.RoundBrainService)
 
 local CHORE_ACTIONS = { finish_chore = true, pickup_trash = true }
 
 function Session.start(sandbox: any)
     local config = sandbox.config
+    -- One switch for the whole server. Each household gets its own call budget, so
+    -- restarting a run also restarts the spend.
+    local brainEnabled = Build.brain.enabled == true
     local remote = Instance.new("RemoteEvent")
     remote.Name = "RoundLink"
     remote.Parent = ReplicatedStorage
@@ -174,7 +179,7 @@ function Session.start(sandbox: any)
 
     -- Only explicit requests move the round. The flow has no wall clock.
     local function advance(session: any)
-        local ok, reason = Flow.advance(Round, Policy, session.state)
+        local ok, reason = Flow.advance(Round, Policy, session.state, session.brain)
         session.notice = if ok then nil else reason
         changed(session)
     end
@@ -203,6 +208,14 @@ function Session.start(sandbox: any)
         clueFolder.Parent = sandbox.scene
         local session = {
             clues = clueFolder,
+            brain = BrainService.new({
+                url = Build.brain.url,
+                maxCalls = Build.brain.maxCalls,
+                deadline = Build.brain.deadline,
+                isEnabled = function()
+                    return brainEnabled
+                end,
+            }),
             player = player,
             playerId = picked,
             color = picked,
@@ -220,16 +233,17 @@ function Session.start(sandbox: any)
         if sandbox.tint then
             sandbox.tint(player, Setup.rgb(picked))
         end
-        Flow.speak(Round, Policy, session.state)
+        Flow.speak(Round, Policy, session.state, session.brain)
         changed(session)
         print(
             string.format(
-                "[Round] %s started %s as %s (seed %d, rent every %d days)",
+                "[Round] %s started %s as %s (seed %d, rent every %d days, roommates %s)",
                 player.Name,
                 Setup.version,
                 picked,
                 seed,
-                session.state.config.rentEvery
+                session.state.config.rentEvery,
+                session.brain.status()
             )
         )
         return session
@@ -279,7 +293,7 @@ function Session.start(sandbox: any)
         session.notice = reason
         session.receipt = { requestId = request.requestId, accepted = ok }
         if ok then
-            Flow.speak(Round, Policy, state)
+            Flow.speak(Round, Policy, state, session.brain)
         end
         changed(session)
     end
@@ -301,6 +315,11 @@ function Session.start(sandbox: any)
         elseif parsed.kind == "reset" then
             newSession(player, parsed.seed)
             return
+        elseif parsed.kind == "brain" then
+            -- Server-wide, and deliberately not reset by `/reset`: a demo run is
+            -- either using live roommates or it is not.
+            brainEnabled = parsed.enabled
+            session.notice = "Live roommates: " .. session.brain.status()
         elseif session.state.status ~= "running" then
             session.notice = "The household has finished. Use /reset."
         elseif parsed.kind == "set" then
@@ -315,7 +334,7 @@ function Session.start(sandbox: any)
                 if session.state.status ~= "running" or session.state.day ~= day then
                     break
                 end
-                Flow.advance(Round, Policy, session.state)
+                Flow.advance(Round, Policy, session.state, session.brain)
             end
             session.notice = "Advanced to the next morning or the household's ending."
         end

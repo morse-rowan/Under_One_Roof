@@ -1,5 +1,13 @@
 """Loopback bridge between Roblox Studio and Nemotron. Stdlib only; no game state.
 
+Two endpoints:
+    POST /ask     one typed line -> one in-character sentence (the sanity check)
+    POST /decide  one roommate's projected observation -> one structured decision
+
+/decide is what the playable round calls. The prompt contract and the color-only
+projection live in `src/shared/RoundBrain.luau`; this process adds only the
+credential, the call cap and JSON repair, and keeps no game state between calls.
+
 Offline (no inference, deterministic replies):
     py -3 tools/nemotron_proxy.py --offline
 Live:
@@ -19,8 +27,9 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Chosen on measured reliability, not peak speed: over five repeats each on 2026-09-19,
 # Super answered 10/10 dialogue+JSON calls (median 0.73 s / 1.12 s) while Lightning managed
@@ -30,6 +39,9 @@ ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
 HOST = "127.0.0.1"
 PORT = 8787
 MAX_BODY = 4096
+# A projected observation carries bounded history, issues, plans and legal choices.
+MAX_DECIDE_BODY = 96 * 1024
+MAX_DECIDE_TOKENS = 512
 MAX_PROMPT = 300
 MAX_REPLY = 200
 SYSTEM = (
@@ -91,6 +103,77 @@ def ask_nemotron(prompt, speaker):
         return False, "", {"error": type(error).__name__}
 
 
+def extract_json(text):
+    """Pull the decision object out of a reply that may carry fences or a preamble."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1] if text.count("```") >= 2 else text[3:]
+        if text.lstrip().lower().startswith("json"):
+            text = text.lstrip()[4:]
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        value = json.loads(text[start : end + 1])
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def decide_nemotron(system, observation, max_tokens):
+    """Return (ok, decision, detail). The decision is only shape-checked here.
+
+    Legality is the game server's job: `RoundBrain.validate` re-checks every field
+    against the live round, so a plausible-looking object from this bridge can still
+    be refused there. Never raises; never includes the key in detail.
+    """
+    body = json.dumps(
+        {
+            "model": state["model"],
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps(observation, ensure_ascii=False)},
+            ],
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "max_tokens": max_tokens,
+            "stream": False,
+            "response_format": {"type": "json_object"},
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+    ).encode()
+    request = urllib.request.Request(
+        ENDPOINT,
+        data=body,
+        headers={"Authorization": "Bearer " + state["key"], "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=25) as response:
+            raw = response.read(262145)
+        if len(raw) > 262144:
+            return False, None, {"error": "response too large"}
+        result = json.loads(raw)
+        decision = extract_json(result["choices"][0]["message"]["content"] or "")
+        if decision is None:
+            return False, None, {"error": "no json object in reply"}
+        return True, decision, {"usage": result.get("usage"), "model": result.get("model")}
+    except urllib.error.HTTPError as error:
+        return False, None, {"error": "http %d" % error.code}
+    except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
+        return False, None, {"error": type(error).__name__}
+
+
+def offline_decision(observation):
+    """Deterministic stub: exercise the whole live path with no inference and no key.
+
+    It is not a pretend roommate. In an action turn it takes the first legal
+    candidate, which `MvpRound` always builds as `wait`; at a stop it stays silent.
+    """
+    if observation.get("decisionMode") == "communication":
+        return {"assessment": "offline stub: no inference", "choice": None, "message": None}
+    return {"assessment": "offline stub: no inference", "choice": 0, "message": None}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "NemotronBridge/1"
@@ -107,7 +190,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def do_GET(self):
-        if self.path != "/health":
+        if self.route() != "/health":
             return self.reply(404, {"ok": False, "text": "", "error": "unknown path"})
         self.reply(
             200,
@@ -120,8 +203,14 @@ class Handler(BaseHTTPRequestHandler):
             },
         )
 
+    def route(self):
+        """Just the path. Some clients send an absolute request target."""
+        return urllib.parse.urlsplit(self.path).path or "/"
+
     def do_POST(self):
-        if self.path != "/ask":
+        if self.route() == "/decide":
+            return self.do_decide()
+        if self.route() != "/ask":
             return self.reply(404, {"ok": False, "text": "", "error": "unknown path"})
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > MAX_BODY:
@@ -156,6 +245,55 @@ class Handler(BaseHTTPRequestHandler):
             {"ok": ok, "text": text, "seconds": seconds, "error": detail.get("error", "")},
         )
 
+    def do_decide(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > MAX_DECIDE_BODY:
+            return self.reply(413, {"ok": False, "decision": None, "error": "bad body size"})
+        try:
+            data = json.loads(self.rfile.read(length))
+            system = str(data["system"])
+            observation = data["observation"]
+            tokens = min(int(data.get("maxTokens") or 160), MAX_DECIDE_TOKENS)
+        except (ValueError, KeyError, TypeError):
+            return self.reply(400, {"ok": False, "decision": None, "error": "bad json"})
+        if not isinstance(observation, dict) or not system or tokens <= 0:
+            return self.reply(400, {"ok": False, "decision": None, "error": "bad request"})
+
+        started = time.monotonic()
+        # Only the counter is serialized: roommates in one phase are asked at the
+        # same time, so holding the lock across the network call would re-serialize
+        # them and add a second per roommate to a single button press.
+        with lock:
+            if state["limit"] and state["calls"] >= state["limit"]:
+                return self.reply(429, {"ok": False, "decision": None, "error": "call cap reached"})
+            if state["live"]:
+                state["calls"] += 1
+        if state["live"]:
+            ok, decision, detail = decide_nemotron(system, observation, tokens)
+        else:
+            ok, decision, detail = True, offline_decision(observation), {}
+        seconds = round(time.monotonic() - started, 3)
+        print(
+            "decide mode=%s actor=%s ok=%s %.3fs %s"
+            % (
+                observation.get("decisionMode"),
+                (observation.get("actor") or {}).get("id"),
+                ok,
+                seconds,
+                json.dumps(detail),
+            ),
+            flush=True,
+        )
+        self.reply(
+            200 if ok else 502,
+            {
+                "ok": ok,
+                "decision": decision,
+                "seconds": seconds,
+                "error": detail.get("error", ""),
+            },
+        )
+
 
 def serve(args):
     state["live"] = not args.offline
@@ -168,7 +306,7 @@ def serve(args):
         state["key"] = key.strip()
         if not state["key"]:
             raise SystemExit("No key provided; the bridge did not start.")
-    httpd = HTTPServer((HOST, args.port), Handler)
+    httpd = ThreadingHTTPServer((HOST, args.port), Handler)
     print(
         "Nemotron bridge on http://%s:%d  mode=%s  model=%s  cap=%s calls  (Ctrl+C to stop)"
         % (HOST, args.port, "live" if state["live"] else "offline",
@@ -203,9 +341,40 @@ def selftest(args):
                 raise AssertionError("bad request was accepted: %r" % bad)
             except urllib.error.HTTPError as error:
                 assert error.code == 400, error.code
+
+        def decide(payload):
+            request = urllib.request.Request(
+                base + "/decide", data=payload, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return json.loads(response.read())
+
+        observation = {"decisionMode": "action", "actor": {"id": "green"},
+                       "candidates": [{"kind": "wait"}]}
+        answer = decide(json.dumps({"system": "rules", "observation": observation}).encode())
+        assert answer["ok"] and answer["decision"]["choice"] == 0, answer
+        observation["decisionMode"] = "communication"
+        answer = decide(json.dumps({"system": "rules", "observation": observation}).encode())
+        assert answer["decision"]["choice"] is None and answer["decision"]["message"] is None
+        for bad in (b'{"observation": {}}', b'{"system": "", "observation": {}}',
+                    b'{"system": "s", "observation": 7}', b"not json"):
+            request = urllib.request.Request(
+                base + "/decide", data=bad, headers={"Content-Type": "application/json"}
+            )
+            try:
+                urllib.request.urlopen(request, timeout=5)
+                raise AssertionError("bad decide request was accepted: %r" % bad)
+            except urllib.error.HTTPError as error:
+                assert error.code == 400, error.code
+        assert extract_json('```json\n{"choice": 1}\n```') == {"choice": 1}
+        assert extract_json("Sure! {\"choice\": 2} hope that helps") == {"choice": 2}
+        assert extract_json("no object here") is None
     finally:
         httpd.shutdown()
-    print("Self-test passed: health, offline ask, rejected empty/oversized/malformed prompts.")
+    print(
+        "Self-test passed: health, offline ask and decide, JSON repair, "
+        "rejected empty/oversized/malformed requests."
+    )
 
 
 def main():
