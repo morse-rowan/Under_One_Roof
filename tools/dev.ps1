@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('check', 'build', 'test', 'format', 'serve', 'doctor', 'open')]
+    [ValidateSet('check', 'build', 'test', 'format', 'serve', 'doctor', 'open', 'release')]
     [string]$Task = 'check',
     [switch]$SkipWiki
 )
@@ -13,6 +13,15 @@ function Invoke-Tool([string]$Name, [string[]]$ToolArgs) {
     if (-not (Test-Path $exe)) { throw "Missing $Name. Run .\tools\bootstrap.ps1 first." }
     & $exe @ToolArgs
     if ($LASTEXITCODE -ne 0) { throw "$Name failed (exit $LASTEXITCODE)." }
+}
+
+function Open-Studio([string]$PlacePath) {
+    $studioRoot = Join-Path $env:LOCALAPPDATA 'Roblox/Versions'
+    $studio = Get-ChildItem -Path "$studioRoot/*/RobloxStudioBeta.exe" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $studio) { throw 'Install Roblox Studio before opening the place.' }
+    # This command intentionally opens the interactive Studio window.
+    Start-Process -FilePath $studio.FullName -ArgumentList ('"' + $PlacePath + '"')
 }
 
 function Build-Place {
@@ -58,15 +67,23 @@ try {
             if (-not $studio) { throw 'Roblox Studio was not found in its standard user install directory.' }
             $studio | ForEach-Object { Write-Host "Studio: $($_.FullName)" }
         }
+        'release' {
+            # Builds the verified offline release and opens it so it can be published
+            # from Studio: File > Publish to Roblox As... Deterministic roommates play
+            # the whole household, so this configuration needs no gateway and no secrets.
+            & py -3 (Join-Path $PSScriptRoot 'package_presentation.py') --offline
+            if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
+            $releasePlace = Join-Path $repoRoot 'build/presentation/RoommatePresentation.rbxlx'
+            if (-not (Test-Path $releasePlace)) { throw 'Release place was not produced.' }
+            Open-Studio $releasePlace
+            Write-Host ''
+            Write-Host 'Studio is opening the verified release place.'
+            Write-Host 'Publish it with File > Publish to Roblox As... (first time creates the experience).'
+            Write-Host 'Then set the experience to Private and join from any laptop signed in as you.'
+        }
         'open' {
             Build-Place
-            $studioRoot = Join-Path $env:LOCALAPPDATA 'Roblox/Versions'
-            $studio = Get-ChildItem -Path "$studioRoot/*/RobloxStudioBeta.exe" -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if (-not $studio) { throw 'Install Roblox Studio before opening the place.' }
-            # This command intentionally opens the interactive Studio window for playtesting.
-            $placePath = Join-Path $repoRoot 'build/RoommateDev.rbxlx'
-            Start-Process -FilePath $studio.FullName -ArgumentList ('"' + $placePath + '"')
+            Open-Studio (Join-Path $repoRoot 'build/RoommateDev.rbxlx')
         }
     }
 } finally {
