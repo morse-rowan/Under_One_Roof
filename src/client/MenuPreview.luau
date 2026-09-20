@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local shared = ReplicatedStorage:WaitForChild("Shared")
 local Kit = require(script.Parent.MenuKit)
 local Blocks = require(script.Parent.MenuBlocks)
+local Fullscreen = require(script.Parent.MenuFullscreen)
 local Styles = require(shared:WaitForChild("MenuStyles"))
 local Data = require(shared:WaitForChild("MenuPreviewData"))
 
@@ -432,11 +433,20 @@ local renderers = { paper = renderPaper, phone = renderPhone, board = renderBoar
 
 -- Draws one screen in one look into `stage`, replacing whatever was there.
 -- Usable from the command bar on any container, not just the running client.
-function Preview.render(stage: Instance, screenId: string, styleId: string): (any, any)
+function Preview.render(
+    stage: Instance,
+    screenId: string,
+    styleId: string,
+    interactive: boolean?
+): (any, any)
     local style = Styles.get(styleId)
     local screen = Data.screen(screenId)
     stage:ClearAllChildren()
-    renderers[style.layout](stage, style, screen)
+    if style.fullscreen then
+        Fullscreen.render(stage, style, screen, interactive)
+    else
+        renderers[style.layout](stage, style, screen)
+    end
     return style, screen
 end
 
@@ -485,7 +495,7 @@ function Preview.start()
         Name = "StudyBar",
         AnchorPoint = Vector2.new(0.5, 1),
         Position = UDim2.new(0.5, 0, 1, -2),
-        Size = UDim2.fromOffset(720, 30),
+        Size = UDim2.fromOffset(940, 30),
         BackgroundColor3 = Color3.fromRGB(16, 18, 21),
         BackgroundTransparency = 0.15,
         BorderSizePixel = 0,
@@ -502,7 +512,7 @@ function Preview.start()
 
     local function draw()
         local screenId = Data.screens[screenIndex]
-        local style = Preview.render(stage, screenId, styleId)
+        local style = Preview.render(stage, screenId, styleId, true)
         scrim.BackgroundColor3 = Kit.tone(style, "bg")
         scrim.BackgroundTransparency = 1 - style.scrim
         barText.Text = string.format(

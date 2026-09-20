@@ -4,7 +4,7 @@
 -- stays engine-independent and testable. Nothing here is an accepted design.
 local Styles = {}
 
-Styles.order = { "paper", "phone", "board" }
+Styles.order = { "tablet", "laptop", "arcade", "paper", "phone", "board" }
 
 -- Shared roommate identity colors, matching the sandbox beans.
 Styles.identity = {
@@ -117,6 +117,52 @@ Styles.list = {
         },
     },
 }
+
+-- Full-screen studies share warm, outlined game UI, with distinct compositions.
+for _, entry in
+    {
+        { "tablet", "HousePad", { 216, 173, 126 }, { 72, 115, 95 }, 22 },
+        { "laptop", "Roomie OS", { 91, 119, 113 }, { 64, 102, 140 }, 10 },
+        { "arcade", "House meeting", { 223, 170, 93 }, { 161, 73, 58 }, 18 },
+    }
+do
+    local id = entry[1]
+    Styles.list[id] = {
+        id = id,
+        name = entry[2],
+        blurb = "Full-screen concept with bean portraits, messaging and a separate shift view.",
+        layout = id,
+        fullscreen = true,
+        scrim = 1,
+        corner = entry[5],
+        cardTransparency = 0,
+        tilt = false,
+        stroke = 2,
+        colors = {
+            bg = entry[3],
+            card = { 255, 247, 225 },
+            cardAlt = { 239, 224, 194 },
+            ink = { 51, 45, 42 },
+            muted = { 111, 96, 78 },
+            accent = entry[4],
+            good = { 53, 108, 78 },
+            warn = { 142, 91, 32 },
+            bad = { 167, 65, 53 },
+            cool = { 57, 94, 140 },
+            line = { 67, 56, 48 },
+            chipOn = entry[4],
+            chipOff = { 239, 224, 194 },
+            bubbleMine = { 204, 226, 210 },
+            bubbleOther = { 247, 230, 198 },
+        },
+        fonts = {
+            display = "gothamBold",
+            heading = "gothamBold",
+            body = "gotham",
+            data = "gothamMedium",
+        },
+    }
+end
 
 function Styles.get(id: string): any
     local style = Styles.list[id]
