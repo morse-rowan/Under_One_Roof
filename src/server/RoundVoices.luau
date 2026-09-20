@@ -40,7 +40,11 @@ local function bubble(bean: Model): TextLabel?
     gui.StudsOffsetWorldSpace = Vector3.new(0, 2.4, 0)
     gui.AlwaysOnTop = true
     gui.MaxDistance = 200
+    -- The client owns `Enabled`, because only it knows which room the viewer is
+    -- looking at. The server states the intent through the `Speaking` attribute;
+    -- an always-on-top bubble would otherwise hang over the other room.
     gui.Enabled = false
+    gui:SetAttribute("Speaking", false)
     gui.Parent = bean
 
     local frame = Instance.new("Frame")
@@ -83,9 +87,9 @@ function Voices.new(scene: Instance, beans: { [string]: string }): any
 
     local function hide(id: string)
         local bean = scene:FindFirstChild(beans[id] or "")
-        local gui = if bean then bean:FindFirstChild("RoundVoice") :: BillboardGui? else nil
+        local gui = if bean then bean:FindFirstChild("RoundVoice") else nil
         if gui then
-            gui.Enabled = false
+            gui:SetAttribute("Speaking", false)
         end
         shown[id] = nil
     end
@@ -106,7 +110,7 @@ function Voices.new(scene: Instance, beans: { [string]: string }): any
         end
         label.Text = text
         local gui = label.Parent.Parent :: BillboardGui
-        gui.Enabled = true
+        gui:SetAttribute("Speaking", true)
         shown[id] = os.clock() + Voices.holdSeconds
     end
 

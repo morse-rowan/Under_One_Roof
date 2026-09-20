@@ -217,6 +217,13 @@ function Sandbox.start(options: any?)
                         part.LocalTransparencyModifier = if activeRoom == room then 0 else 1
                     end
                 end
+                -- A roommate's speech bubble belongs to the room its speaker is
+                -- standing in. It is always on top, so the server states the intent
+                -- and the viewer's own room decides whether it is drawn.
+                local voice = model:FindFirstChild("RoundVoice") :: BillboardGui?
+                if voice then
+                    voice.Enabled = activeRoom == room and voice:GetAttribute("Speaking") == true
+                end
             end
         end
         local clockNow = os.clock()
